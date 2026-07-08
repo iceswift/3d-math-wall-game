@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>3D Math Wall</title>
+<meta name="description" content="Transform your number before the wall arrives — a fast-paced 3D arithmetic action-puzzle game.">
+<meta name="theme-color" content="#bfe3ff">
+<meta property="og:title" content="3D Math Wall">
+<meta property="og:description" content="Transform your number before the wall arrives — a fast-paced 3D arithmetic action-puzzle game.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23ff7a59'/><text x='32' y='47' font-family='Arial,sans-serif' font-size='42' font-weight='900' fill='white' text-anchor='middle'>3</text></svg>">
+<style>
+  :root {
+    --ink: #2b3a55;
+    --accent: #ff7a59;
+    --good: #3ecf8e;
+    --bad: #ff5a76;
+    --gold: #f5a623;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Segoe UI", system-ui, sans-serif;
+    background: #bfe3ff;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #scene { position: fixed; inset: 0; display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    display: none;
+  }
+  #hud.visible { display: block; }
+  .hud-chip {
+    position: absolute;
+    background: rgba(255,255,255,0.75);
+    backdrop-filter: blur(6px);
+    border-radius: 16px;
+    padding: 10px 18px;
+    color: var(--ink);
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(43,58,85,0.12);
+  }
+  #score-chip { top: 18px; left: 18px; font-size: 22px; }
+  #score-chip small { display: block; font-size: 11px; opacity: 0.55; letter-spacing: 2px; }
+  #wave-chip { top: 18px; left: 50%; transform: translateX(-50%); font-size: 14px; letter-spacing: 2px; padding: 12px 18px; }
+  #lives-chip { top: 18px; right: 18px; font-size: 20px; letter-spacing: 3px; }
+  #pause-btn {
+    top: 74px; right: 18px;
+    pointer-events: auto;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 15px;
+    padding: 8px 14px;
+  }
+  #combo-pop {
+    position: absolute; top: 16%; left: 50%;
+    transform: translateX(-50%) scale(0);
+    font-size: 42px; font-weight: 900;
+    color: var(--accent);
+    text-shadow: 0 3px 0 rgba(255,255,255,0.9);
+    transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  #combo-pop.show { transform: translateX(-50%) scale(1); }
+  #perfect-pop {
+    position: absolute; top: 26%; left: 50%;
+    transform: translateX(-50%) scale(0);
+    font-size: 34px; font-weight: 900;
+    color: var(--good);
+    text-shadow: 0 3px 0 rgba(255,255,255,0.9);
+    transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  #perfect-pop.show { transform: translateX(-50%) scale(1); }
+  #wave-banner {
+    position: absolute; top: 38%; left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    font-size: clamp(40px, 9vw, 72px); font-weight: 900;
+    color: var(--ink);
+    text-shadow: 0 4px 0 rgba(255,255,255,0.85);
+    letter-spacing: 4px;
+    transition: transform 0.22s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
+    opacity: 0;
+  }
+  #wave-banner.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+
+  /* ---------- Equation strip ---------- */
+  #equation {
+    position: absolute;
+    bottom: 128px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.8);
+    backdrop-filter: blur(6px);
+    border-radius: 14px;
+    padding: 8px 22px;
+    font-size: 24px; font-weight: 800;
+    color: var(--ink);
+    box-shadow: 0 4px 16px rgba(43,58,85,0.12);
+    white-space: nowrap;
+  }
+  #equation .target { color: var(--accent); }
+  #equation.matched { outline: 3px solid var(--good); }
+  #equation.matched .target { color: var(--good); }
+
+  /* ---------- Operation buttons ---------- */
+  #ops {
+    position: fixed;
+    bottom: 26px; left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    gap: 14px;
+  }
+  #ops.visible { display: flex; }
+  .op-btn {
+    pointer-events: auto;
+    min-width: 88px;
+    padding: 16px 10px 12px;
+    border: none;
+    border-radius: 20px;
+    background: #ffffff;
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 30px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 6px 0 rgba(43,58,85,0.18), 0 10px 24px rgba(43,58,85,0.14);
+    transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.15s;
+  }
+  .op-btn.gold {
+    background: linear-gradient(180deg, #ffe29a, #ffca4f);
+    color: #7a4d00;
+    box-shadow: 0 6px 0 #d18f1f, 0 10px 24px rgba(245,166,35,0.35);
+  }
+  .op-btn:active, .op-btn.pressed {
+    transform: translateY(4px);
+    box-shadow: 0 2px 0 rgba(43,58,85,0.18), 0 4px 10px rgba(43,58,85,0.12);
+  }
+  .op-btn:disabled { opacity: 0.35; cursor: default; }
+  .op-btn small {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    opacity: 0.4;
+    margin-top: 2px;
+  }
+
+  /* ---------- Overlay screens ---------- */
+  .screen {
+    position: fixed; inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: rgba(191,227,255,0.55);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+  .screen.hidden { display: none; }
+  .screen h1 {
+    font-size: clamp(38px, 8vw, 68px);
+    font-weight: 900;
+    color: var(--ink);
+    text-shadow: 0 4px 0 rgba(255,255,255,0.8);
+    letter-spacing: 1px;
+  }
+  .screen p {
+    font-size: 17px;
+    color: var(--ink);
+    opacity: 0.75;
+    max-width: 440px;
+    text-align: center;
+    line-height: 1.5;
+    font-weight: 600;
+  }
+  .big-btn {
+    pointer-events: auto;
+    width: min(320px, 80vw);
+    padding: 16px 20px;
+    border: none;
+    border-radius: 22px;
+    background: var(--accent);
+    color: #fff;
+    font-family: inherit;
+    font-size: 24px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 7px 0 #d95a3c, 0 12px 26px rgba(255,122,89,0.4);
+    transition: transform 0.08s ease, box-shadow 0.08s ease;
+  }
+  .big-btn:active {
+    transform: translateY(5px);
+    box-shadow: 0 2px 0 #d95a3c, 0 6px 12px rgba(255,122,89,0.3);
+  }
+  .big-btn small {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    opacity: 0.75;
+    margin-top: 2px;
+    letter-spacing: 1px;
+  }
+  .big-btn.alt {
+    background: #5b8def;
+    box-shadow: 0 7px 0 #3d6dcc, 0 12px 26px rgba(91,141,239,0.4);
+  }
+  .big-btn.alt:active { box-shadow: 0 2px 0 #3d6dcc, 0 6px 12px rgba(91,141,239,0.3); }
+  .big-btn.alt2 {
+    background: #9a6ff2;
+    box-shadow: 0 7px 0 #7a4fd0, 0 12px 26px rgba(154,111,242,0.4);
+  }
+  .big-btn.alt2:active { box-shadow: 0 2px 0 #7a4fd0, 0 6px 12px rgba(154,111,242,0.3); }
+  .big-btn.ghost {
+    background: rgba(255,255,255,0.85);
+    color: var(--ink);
+    box-shadow: 0 7px 0 rgba(43,58,85,0.2), 0 12px 26px rgba(43,58,85,0.15);
+    font-size: 18px;
+    width: min(200px, 60vw);
+    padding: 12px 20px;
+  }
+  .big-btn.ghost:active { box-shadow: 0 2px 0 rgba(43,58,85,0.2), 0 5px 10px rgba(43,58,85,0.12); }
+  #final-score { font-size: 30px; font-weight: 900; color: var(--accent); }
+
+  #flash {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    background: #fff;
+    opacity: 0;
+    z-index: 5;
+  }
+
+  /* ---------- Small screens (portrait phones) ---------- */
+  @media (max-width: 480px) {
+    #ops { gap: 10px; bottom: 18px; }
+    .op-btn { min-width: 72px; font-size: 24px; padding: 12px 6px 10px; border-radius: 16px; }
+    #equation { font-size: 19px; bottom: 104px; padding: 6px 16px; }
+    #score-chip { font-size: 18px; padding: 8px 14px; }
+    #wave-chip { font-size: 11px; padding: 10px 12px; letter-spacing: 1px; }
+    #lives-chip { font-size: 16px; padding: 8px 12px; }
+    #pause-btn { top: 64px; font-size: 13px; padding: 7px 12px; }
+  }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./lib/three.module.js" } }
+</script>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <div class="hud-chip" id="score-chip"><small>SCORE</small><span id="score-val">0</span></div>
+    <div class="hud-chip" id="wave-chip">WAVE 1</div>
+    <div class="hud-chip" id="lives-chip">❤❤❤</div>
+    <button class="hud-chip" id="pause-btn">⏸ PAUSE</button>
+    <div id="combo-pop"></div>
+    <div id="perfect-pop"></div>
+    <div id="wave-banner"></div>
+    <div id="equation"><span id="eq-current">8</span> → <span class="target" id="eq-target">24</span></div>
+  </div>
+
+  <div id="ops"></div>
+
+  <div class="screen" id="menu-screen">
+    <h1>3D MATH WALL</h1>
+    <p>A wall is coming. Transform your number into the target before it hits you.<br>Press <b>1 – 4</b> or tap the operation buttons.</p>
+    <button class="big-btn" id="play-classic">CLASSIC<small id="best-classic">best 0</small></button>
+    <button class="big-btn alt" id="play-time">TIME ATTACK<small id="best-time">best 0</small></button>
+    <button class="big-btn alt2" id="play-daily">DAILY CHALLENGE<small id="best-daily">today's best 0</small></button>
+  </div>
+
+  <div class="screen hidden" id="pause-screen">
+    <h1>PAUSED</h1>
+    <button class="big-btn" id="resume-btn">RESUME</button>
+    <button class="big-btn alt" id="sound-btn">SOUND: ON</button>
+    <button class="big-btn ghost" id="quit-btn">QUIT TO MENU</button>
+  </div>
+
+  <div class="screen hidden" id="gameover-screen">
+    <h1 id="gameover-title">CRASHED!</h1>
+    <div id="final-score">Score: 0</div>
+    <p id="best-score"></p>
+    <button class="big-btn" id="retry-btn">RETRY</button>
+    <button class="big-btn ghost" id="menu-btn">MENU</button>
+  </div>
+
+  <div id="flash"></div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
