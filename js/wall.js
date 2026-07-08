@@ -79,6 +79,7 @@ export function buildWall(font, target, { boss = false } = {}) {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
+  glowMat.color.multiplyScalar(1.5); // past the bloom threshold — the cutout radiates
   glowMat.fog = false; // stays vivid at spawn distance so the target is always readable
   const glowMesh = new THREE.Mesh(new THREE.ShapeGeometry(glowShapes, 12), glowMat);
   group.add(glowMesh);
@@ -88,7 +89,7 @@ export function buildWall(font, target, { boss = false } = {}) {
 
 export function setWallMatchGlow(wall, matched) {
   if (!wall) return;
-  wall.glowMat.color.setHex(matched ? COLORS.good : wall.baseGlow);
+  wall.glowMat.color.setHex(matched ? COLORS.good : wall.baseGlow).multiplyScalar(1.5);
   wall.glowBase = matched ? 0.8 : 0.5;
 }
 

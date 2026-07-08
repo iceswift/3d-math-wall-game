@@ -4,6 +4,11 @@ import { loadFont, makeNumberGeometry, NUMBER_SIZE } from './js/text3d.js';
 import { buildWall, setWallMatchGlow, disposeWall, WALL_HEIGHT, HOLE_Y } from './js/wall.js';
 import { initFX, spawnBurst, spawnWallDebris, updateFX } from './js/fx.js';
 import { ensureAudio, sfx, isMuted, setMuted } from './js/audio.js';
+import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
+import { RenderPass } from './lib/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './lib/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from './lib/postprocessing/OutputPass.js';
+import { RoomEnvironment } from './lib/environments/RoomEnvironment.js';
 
 // ---------------------------------------------------------------------------
 // 3D MATH WALL — main: scene, player character, game state machine, UI, loop
@@ -47,19 +52,67 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(COL.sky);
 scene.fog = new THREE.Fog(COL.sky, 60, 150);
 initFX(scene, COL.wall, COL.wallEdge);
+
+// PBR environment map for the number character only — a glossy toy-like sheen
+// without overexposing the rest of the scene
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+// ----- Gradient sky dome ------------------------------------------------------
+const skyMat = new THREE.ShaderMaterial({
+  uniforms: {
+    topColor: { value: new THREE.Color(0x7ec3ff) },
+    bottomColor: { value: new THREE.Color(0xeaf7ff) },
+    offset: { value: 20 },
+    exponent: { value: 0.7 },
+  },
+  vertexShader: `
+    varying vec3 vWorldPosition;
+    void main() {
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vWorldPosition = wp.xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 topColor;
+    uniform vec3 bottomColor;
+    uniform float offset;
+    uniform float exponent;
+    varying vec3 vWorldPosition;
+    void main() {
+      float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
+      gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+    }`,
+  side: THREE.BackSide,
+  depthWrite: false,
+  fog: false,
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(240, 24, 12), skyMat));
 
 const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 300);
 const camBase = new THREE.Vector3(0, 4.6, 10);
 camera.position.copy(camBase);
 camera.lookAt(0, 2.2, -20);
 
+// ----- Post-processing: soft bloom on glows -----------------------------------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.4,   // strength
+  0.4,   // radius
+  1.0    // threshold: above SDR white — only the boosted glows (1.5×) bloom
+);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
 
 // ----- Lights ---------------------------------------------------------------
@@ -79,9 +132,10 @@ function makeStripeTexture() {
   const c = document.createElement('canvas');
   c.width = 64; c.height = 256;
   const g = c.getContext('2d');
-  g.fillStyle = '#e4f5ec';
+  // grayscale so the theme system can tint it via material.color
+  g.fillStyle = '#ffffff';
   g.fillRect(0, 0, 64, 256);
-  g.fillStyle = COL.stripe;
+  g.fillStyle = '#dcdcdc';
   g.fillRect(0, 0, 64, 24);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
@@ -91,10 +145,8 @@ function makeStripeTexture() {
   return tex;
 }
 const groundTex = makeStripeTexture();
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(80, 400),
-  new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 })
-);
+const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, color: 0xe0f4ea });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 400), groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.position.z = -150;
 ground.receiveShadow = true;
@@ -131,7 +183,15 @@ loadFont().then(f => {
   cardPop = 0;
 });
 
-const playerMat = new THREE.MeshStandardMaterial({ color: 0x4f7cff, roughness: 0.3, metalness: 0.15 });
+const playerMat = new THREE.MeshPhysicalMaterial({
+  color: 0x4f7cff,
+  roughness: 0.22,
+  metalness: 0.1,
+  clearcoat: 0.8,
+  clearcoatRoughness: 0.25,
+  envMap: envTex,
+  envMapIntensity: 0.7,
+});
 const player = new THREE.Group();
 let numberMesh = null;
 const blob = new THREE.Mesh(
@@ -216,6 +276,34 @@ const game = {
   paused: false,
 };
 window.__game = game; // debug handle
+
+// ----- Per-wave environment themes: deep runs feel like traveling somewhere ----
+const THEMES = [
+  { top: 0x7ec3ff, horizon: 0xeaf7ff, ground: 0xe0f4ea, fog: 0xdff0fb }, // meadow morning
+  { top: 0x9a8cff, horizon: 0xffd9c0, ground: 0xf0e2d6, fog: 0xf5dccb }, // sunset
+  { top: 0x46598f, horizon: 0xc9b8e8, ground: 0xcdd1e8, fog: 0xc5bce0 }, // twilight
+  { top: 0x53c6b2, horizon: 0xe8fff4, ground: 0xd6f0e2, fog: 0xdcf5ea }, // minty dawn
+];
+const themeNow = {
+  top: new THREE.Color(THEMES[0].top),
+  horizon: new THREE.Color(THEMES[0].horizon),
+  ground: new THREE.Color(THEMES[0].ground),
+  fog: new THREE.Color(THEMES[0].fog),
+};
+const themeScratch = new THREE.Color();
+
+function updateTheme(dt) {
+  const t = THEMES[(wave() - 1) % THEMES.length];
+  const k = Math.min(dt * 0.8, 1); // slow, dreamy crossfade
+  themeNow.top.lerp(themeScratch.setHex(t.top), k);
+  themeNow.horizon.lerp(themeScratch.setHex(t.horizon), k);
+  themeNow.ground.lerp(themeScratch.setHex(t.ground), k);
+  themeNow.fog.lerp(themeScratch.setHex(t.fog), k);
+  skyMat.uniforms.topColor.value.copy(themeNow.top);
+  skyMat.uniforms.bottomColor.value.copy(themeNow.horizon);
+  groundMat.color.copy(themeNow.ground);
+  scene.fog.color.copy(themeNow.fog);
+}
 
 function wave() { return Math.floor(game.solved / WAVE_SIZE) + 1; }
 function wallInWave() { return (game.solved % WAVE_SIZE) + 1; }
@@ -576,7 +664,8 @@ function animate() {
     camera.position.copy(camBase);
   }
 
+  updateTheme(dt);
   updateFX(dt);
-  renderer.render(scene, camera);
+  composer.render();
 }
 animate();

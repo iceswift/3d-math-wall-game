@@ -4,12 +4,29 @@ import * as THREE from 'three';
 let scene = null;
 const bursts = [];
 const debris = [];
-let debrisMat, frameDebrisMat;
+let debrisMat, frameDebrisMat, dotTex;
+
+// soft radial sprite so particles render as glowing orbs, not hard squares
+function makeDotTexture() {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.6)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 export function initFX(sceneRef, wallColor, edgeColor) {
   scene = sceneRef;
   debrisMat = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.85 });
   frameDebrisMat = new THREE.MeshStandardMaterial({ color: edgeColor, roughness: 0.5 });
+  dotTex = makeDotTexture();
 }
 
 export function spawnBurst(pos, colorHex, count = 60, power = 9) {
@@ -26,7 +43,16 @@ export function spawnBurst(pos, colorHex, count = 60, power = 9) {
     velocities.push(dir);
   }
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ color: colorHex, size: 0.28, transparent: true, opacity: 1 });
+  const mat = new THREE.PointsMaterial({
+    color: colorHex,
+    size: 0.55,
+    map: dotTex,
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  mat.color.multiplyScalar(1.5); // push past the bloom threshold so bursts radiate
   const points = new THREE.Points(geo, mat);
   scene.add(points);
   bursts.push({ points, velocities, life: 1 });
