@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { makePuzzle, applyOp, opValid, opLabel, isExotic, randStart, seededRandom } from './js/puzzle.js';
-import { loadFont, makeNumberGeometry, NUMBER_SIZE } from './js/text3d.js';
-import { buildWall, setWallMatchGlow, disposeWall, WALL_HEIGHT, HOLE_Y } from './js/wall.js';
+import { loadFont, makeNumberGroup, NUMBER_SIZE } from './js/text3d.js';
+import { buildWall, setWallMatchGlow, disposeWall, WALL_HEIGHT, HOLE_Y, WALL_TINTS } from './js/wall.js';
 import { initFX, spawnBurst, spawnWallDebris, updateFX } from './js/fx.js';
 import { ensureAudio, sfx, isMuted, setMuted } from './js/audio.js';
 import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
@@ -16,7 +16,7 @@ import { RoomEnvironment } from './lib/environments/RoomEnvironment.js';
 
 // ----- Tunables -------------------------------------------------------------
 const PLAYER_Z = 0;
-const PLAYER_Y = 2.1;
+const PLAYER_Y = 3.3; // high enough that the full glyph clears the bottom UI
 const BASE_SPEED = 14;
 const MAX_EXTRA_SPEED = 10;
 const BASE_TIME_BUDGET = 8.0;   // seconds to solve at wave 1
@@ -28,18 +28,24 @@ const PERFECT_BONUS = 15;
 const DAILY_WALLS = 15;
 const TIME_ATTACK_SECONDS = 60;
 const CRASH_TIME_PENALTY = 6;
+const QUEUE_AHEAD = 2;          // upcoming walls visible behind the active one
+const SLOW_FACTOR = 0.45;       // Slow Time power-up speed multiplier
+const SLOW_DURATION = 4;
 
 // ----- Palette --------------------------------------------------------------
 const COL = {
   sky: 0xbfe3ff,
-  stripe: '#c3e6d2',
   accent: 0xff7a59,
   good: 0x3ecf8e,
   bad: 0xff5a76,
   wall: 0x7f9cf5,
   wallEdge: 0xffffff,
-  deco: [0xffc6d9, 0xc4b5fd, 0xfde68a, 0xa7f3d0, 0xbae6fd],
+  // desaturated dreamscape pastels: lavender, blush, powder, mint, cream, periwinkle
+  city: [0xd9c8f5, 0xf5cfe0, 0xc9e6f2, 0xcdf0dd, 0xf7ead2, 0xd6dcf7],
 };
+
+// A calm, warm/cool sky palette keeps the world close to the sunrise reference.
+COL.sky = 0xc7e6ff;
 
 // ----- Renderer / scene -----------------------------------------------------
 const canvas = document.getElementById('scene');
@@ -48,12 +54,19 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.04; // bright, but below the bloom blow-out line
+renderer.toneMappingExposure = 1.08; // luminous daylight without washing out gameplay markers
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // stable, soft contact shadows
+renderer.shadowMap.type = THREE.VSMShadowMap; // blurred, soft shadows — reads as gentle AO
 
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // retain soft shadows after renderer setup
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(COL.sky, 60, 150);
+// Bring haze closer to the runway so the distant city dissolves into the sunrise.
+scene.fog = new THREE.Fog(COL.sky, 72, 265);
+scene.fog = new THREE.Fog(COL.sky, 90, 250); // far + horizon-tinted so the world stays vivid
 initFX(scene, COL.wall, COL.wallEdge);
+scene.fog = new THREE.Fog(COL.sky, 72, 265);
 
 // PBR environment map for the number character only — a glossy toy-like sheen
 // without overexposing the rest of the scene
@@ -63,8 +76,8 @@ const envTex = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
 // ----- Gradient sky dome ------------------------------------------------------
 const skyMat = new THREE.ShaderMaterial({
   uniforms: {
-    topColor: { value: new THREE.Color(0x7ec3ff) },
-    bottomColor: { value: new THREE.Color(0xeaf7ff) },
+    topColor: { value: new THREE.Color(0x3f98e8) },
+    bottomColor: { value: new THREE.Color(0xcfeaff) },
     offset: { value: 20 },
     exponent: { value: 0.7 },
   },
@@ -82,8 +95,15 @@ const skyMat = new THREE.ShaderMaterial({
     uniform float exponent;
     varying vec3 vWorldPosition;
     void main() {
-      float h = normalize(vWorldPosition + vec3(0.0, offset, 0.0)).y;
-      gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
+      vec3 viewDir = normalize(vWorldPosition + vec3(0.0, offset, 0.0));
+      float altitude = clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0);
+      // A three-stage blue gradient keeps the horizon luminous without a warm cast.
+      float blueFalloff = smoothstep(0.48, 0.96, altitude);
+      vec3 sky = mix(bottomColor, topColor, blueFalloff);
+      // A small pearly lift at the horizon gives the sky depth while staying minimalist.
+      float horizonHalo = exp(-pow((altitude - 0.53) / 0.075, 2.0)) * 0.16;
+      sky = mix(sky, vec3(0.985, 0.995, 1.0), horizonHalo);
+      gl_FragColor = vec4(sky, 1.0);
     }`,
   side: THREE.BackSide,
   depthWrite: false,
@@ -91,19 +111,20 @@ const skyMat = new THREE.ShaderMaterial({
 });
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(240, 24, 12), skyMat));
 
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 300);
-const camBase = new THREE.Vector3(0, 4.6, 10);
+// elevated ~45° chase camera: shows the track, the incoming wall, and the queue behind it
+const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 300);
+const camBase = new THREE.Vector3(0, 7.5, 10.5);
 camera.position.copy(camBase);
-camera.lookAt(0, 2.2, -20);
+camera.lookAt(0, 1.2, -13); // aim low: lifts the whole scene above the bottom UI
 
 // ----- Post-processing: soft bloom on glows -----------------------------------
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.4,   // strength
+  0.55,  // strength — the reference is unapologetically bloomy
   0.4,   // radius
-  1.0    // threshold: above SDR white — only the boosted glows (1.5×) bloom
+  1.12   // threshold: safely above lit-white surfaces — only boosted glows bloom
 );
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
@@ -115,65 +136,381 @@ window.addEventListener('resize', () => {
   composer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ----- Lights ---------------------------------------------------------------
-scene.add(new THREE.HemisphereLight(0xffffff, 0xb8d8c8, 0.9));
-const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+// ----- Lights: high-key, warm, soft -------------------------------------------
+const ambientLight = new THREE.HemisphereLight(0xd8eaff, 0xe9eef5, 1.1);
+scene.add(ambientLight);
+const sun = new THREE.DirectionalLight(0xffe9c4, 1.15);
 sun.position.set(8, 18, 10);
 sun.castShadow = true;
 sun.shadow.camera.left = -20;
 sun.shadow.camera.right = 20;
 sun.shadow.camera.top = 20;
 sun.shadow.camera.bottom = -20;
-sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.radius = 8;       // VSM blur — dreamy soft edges
+sun.shadow.blurSamples = 16;
+sun.shadow.bias = -0.0001;
 scene.add(sun);
+// Re-aim the key light at the horizon: warm rims toward the vanishing point,
+// cool skylight above, and soft readable shadows beneath the player and walls.
+sun.color.setHex(0xffe8c6);
+sun.intensity = 1.45;
+sun.position.set(-24, 18, -105);
+sun.target.position.set(0, 0, -48);
+sun.shadow.camera.left = -24;
+sun.shadow.camera.right = 24;
+sun.shadow.camera.top = 24;
+sun.shadow.camera.bottom = -24;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 150;
+sun.shadow.radius = 4;
+sun.shadow.bias = -0.00025;
+scene.add(sun.target);
+const skyFill = new THREE.DirectionalLight(0xa9d8ff, 0.32);
+skyFill.position.set(12, 16, 18);
+scene.add(skyFill);
+// Minimal studio light: neutral surfaces, crisp gameplay silhouettes, no yellow cast.
+sun.color.setHex(0xf7fbff);
+sun.intensity = 0.9;
+sun.position.set(10, 18, 14);
+sun.target.position.set(0, 0, -26);
+skyFill.intensity = 0.46;
 
-// ----- Ground with scrolling stripes ----------------------------------------
-function makeStripeTexture() {
+// ----- Reactive ruler-tile runway ----------------------------------------------
+// The lane is built from individual tiles so the floor itself reacts to play:
+// a shimmer runs down the lane, presses flash under the number, successes send
+// a ripple racing ahead, crashes flush the tiles red. Ruler ticks along both
+// edges burn like a fuse while a wall approaches — the lit stretch between you
+// and the wall is literally the time you have left, and it turns green when
+// you're safe or pulses red inside the PERFECT window.
+const TRACK_TILE_LEN = 4;
+const TRACK_TILE_COUNT = 52;
+// square grout grid drawn onto each tile strip, so the lane reads as glossy
+// white porcelain tiles like the reference
+function makeGroutTexture() {
   const c = document.createElement('canvas');
-  c.width = 64; c.height = 256;
+  c.width = 256; c.height = 256;
   const g = c.getContext('2d');
-  // grayscale so the theme system can tint it via material.color
   g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 64, 256);
-  g.fillStyle = '#dcdcdc';
-  g.fillRect(0, 0, 64, 24);
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#e4e8f1';
+  g.lineWidth = 7;
+  g.strokeRect(3, 3, 250, 250);
+  for (const x of [85, 171]) {
+    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 256); g.stroke();
+  }
   const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 40);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-const groundTex = makeStripeTexture();
-const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1, color: 0xe0f4ea });
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 400), groundMat);
-ground.rotation.x = -Math.PI / 2;
-ground.position.z = -150;
-ground.receiveShadow = true;
-scene.add(ground);
 
-// ----- Floating decorations ---------------------------------------------------
+const trackTiles = [];
+const trackGroup = new THREE.Group();
+{
+  const groutTex = makeGroutTexture();
+  const tileGeo = new THREE.BoxGeometry(12.6, 0.14, TRACK_TILE_LEN - 0.35);
+  const tickGeoShort = new THREE.BoxGeometry(0.45, 0.08, 0.2);
+  const tickGeoLong = new THREE.BoxGeometry(1.0, 0.08, 0.26);
+  for (let i = 0; i < TRACK_TILE_COUNT; i++) {
+    const mat = new THREE.MeshStandardMaterial({
+      color: i % 2 ? 0xeef1f7 : 0xf6f8fc,
+      roughness: 0.34,
+      map: groutTex,
+      envMap: envTex,
+      envMapIntensity: 0.3,
+    });
+    const tile = new THREE.Mesh(tileGeo, mat);
+    const baseZ = 16 - i * TRACK_TILE_LEN;
+    tile.position.set(0, 0.03, baseZ);
+    tile.receiveShadow = true;
+    tile.material.roughness = 0.27;
+    tile.material.metalness = 0.035;
+    tile.material.envMapIntensity = 0.42;
+    tile.material.roughness = 0.54;
+    tile.material.metalness = 0;
+    tile.material.envMapIntensity = 0.08;
+    trackGroup.add(tile);
+    const tickMat = new THREE.MeshStandardMaterial({ color: 0xb9c3d8, emissive: 0x000000 });
+    const tickGeo = i % 5 === 0 ? tickGeoLong : tickGeoShort; // long tick every 5, like a ruler
+    const leftTick = new THREE.Mesh(tickGeo, tickMat);
+    leftTick.position.set(-5.6, 0.14, baseZ);
+    const rightTick = new THREE.Mesh(tickGeo, tickMat);
+    rightTick.position.set(5.6, 0.14, baseZ);
+    trackGroup.add(leftTick, rightTick);
+    trackTiles.push({ mat, tickMat, baseZ });
+  }
+  scene.add(trackGroup);
+}
+let trackScroll = 0;
+const floorFx = []; // { type: 'ripple' | 'flash' | 'crack', t, color }
+
+function floorRipple(colorHex) { floorFx.push({ type: 'ripple', t: 0, color: new THREE.Color(colorHex) }); }
+function floorFlash(colorHex) { floorFx.push({ type: 'flash', t: 0, color: new THREE.Color(colorHex) }); }
+function floorCrack() { floorFx.push({ type: 'crack', t: 0, color: new THREE.Color(0xff5a76) }); }
+
+const tickColorScratch = new THREE.Color();
+function updateFloor(dt, flow) {
+  trackScroll = (trackScroll + flow * dt) % TRACK_TILE_LEN;
+  trackGroup.position.z = trackScroll;
+  for (let i = floorFx.length - 1; i >= 0; i--) {
+    const fx = floorFx[i];
+    fx.t += dt;
+    const life = fx.type === 'ripple' ? 3.2 : fx.type === 'flash' ? 0.35 : 1.2;
+    if (fx.t > life) floorFx.splice(i, 1);
+  }
+  const wallZ = wall ? wall.z : null;
+  const matched = game.current === game.target;
+  const inPerfectWindow = wall ? (PLAYER_Z - wall.z) / game.spawnDist <= PERFECT_WINDOW : false;
+  for (const t of trackTiles) {
+    const z = t.baseZ + trackScroll;
+    // faint shimmer travelling down the lane keeps the floor alive
+    const sh = Math.max(0, Math.sin(z * 0.22 + elapsed * 2.2)) * 0.035;
+    // laneGlow: warm self-illumination after dark, so the runway reads as a lit path
+    let r = sh + laneGlow, g = sh + laneGlow * 0.92, b = sh * 1.2 + laneGlow * 0.75;
+    for (const fx of floorFx) {
+      let k = 0;
+      if (fx.type === 'ripple') {
+        const front = PLAYER_Z - fx.t * 55; // races from the player toward the horizon
+        k = Math.max(0, 1 - Math.abs(z - front) / 7) * Math.max(0, 1 - fx.t / 3.2) * 0.9;
+      } else if (fx.type === 'flash') {
+        k = Math.max(0, 1 - Math.abs(z - PLAYER_Z) / 4) * Math.max(0, 1 - fx.t / 0.35) * 0.7;
+      } else { // crack
+        k = Math.max(0, 1 - Math.abs(z - PLAYER_Z) / 8) * Math.max(0, 1 - fx.t / 1.2) * 0.8;
+      }
+      r += fx.color.r * k; g += fx.color.g * k; b += fx.color.b * k;
+    }
+    t.mat.emissive.setRGB(Math.min(r, 1.2), Math.min(g, 1.2), Math.min(b, 1.2));
+    // fuse gauge: ticks between the wall and the player are lit
+    if (wallZ !== null && z > wallZ && z < PLAYER_Z + 2) {
+      tickColorScratch.setHex(matched ? 0x3ecf8e : inPerfectWindow ? 0xff5a76 : 0xffb14f);
+      const pulse = inPerfectWindow && !matched ? 0.75 + Math.sin(elapsed * 10) * 0.35 : 1;
+      t.tickMat.emissive.copy(tickColorScratch).multiplyScalar(1.1 * pulse);
+      t.tickMat.color.setHex(0xffffff);
+    } else {
+      t.tickMat.emissive.setRGB(0, 0, 0);
+      t.tickMat.color.setHex(0xb9c3d8);
+    }
+  }
+}
+
+const trackBody = new THREE.Mesh(
+  new THREE.BoxGeometry(13.6, 1.8, 440),
+  new THREE.MeshStandardMaterial({ color: 0xeef1f8, roughness: 0.85 })
+);
+trackBody.position.set(0, -0.91, -180);
+trackBody.material.color.setHex(0xe9eef8);
+trackBody.material.roughness = 0.78;
+scene.add(trackBody);
+
+// city floor far below the runway — tinted by the wave theme
+const floorMat = new THREE.MeshStandardMaterial({ color: 0xf2f5fa, roughness: 1 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(320, 520), floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.position.set(0, -1.8, -180);
+floor.material.color.setHex(0xe9f0fa);
+floor.material.roughness = 0.86;
+floor.receiveShadow = true;
+scene.add(floor);
+
+// ----- Bright curbs along the lane edges -----------------------------------------
+const curbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.1 });
+{
+  const curbGeo = new THREE.BoxGeometry(0.55, 0.3, 440);
+  for (const side of [-1, 1]) {
+    const curb = new THREE.Mesh(curbGeo, curbMat);
+    curb.position.set(side * 6.65, 0.14, -180);
+    scene.add(curb);
+  }
+}
+
+// ----- Toy-city skyline: two treadmill tiles of instanced shapes ----------------
+const TILE_LEN = 120;
+function buildCityTile() {
+  const g = new THREE.Group();
+  const col = new THREE.Color();
+  const m = new THREE.Matrix4();
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
+
+  // tall slim pastel monoliths rising out of the mist, reference-style
+  const boxMat = new THREE.MeshStandardMaterial({ roughness: 0.55 });
+  const boxes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), boxMat, 220);
+  boxes.castShadow = true;
+  boxes.receiveShadow = true;
+  for (let i = 0; i < 220; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side * (8.5 + Math.random() * 42);
+    const w = 0.9 + Math.random() * 2.0;
+    const h = 2 + Math.random() * 9.5;
+    const d = 0.9 + Math.random() * 2.0;
+    m.makeScale(w, h, d);
+    m.setPosition(x, -1.8 + h / 2, -Math.random() * TILE_LEN);
+    boxes.setMatrixAt(i, m);
+    boxes.setColorAt(i, col.setHex(COL.city[i % COL.city.length]));
+  }
+  g.add(boxes);
+
+  const torMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
+  const tori = new THREE.InstancedMesh(new THREE.TorusGeometry(1, 0.4, 10, 20), torMat, 12);
+  tori.castShadow = true;
+  for (let i = 0; i < 12; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    p.set(side * (10 + Math.random() * 38), 1 + Math.random() * 5, -Math.random() * TILE_LEN);
+    q.setFromEuler(e.set(Math.random() * 3, Math.random() * 3, Math.random() * 3));
+    s.setScalar(0.8 + Math.random() * 0.9);
+    m.compose(p, q, s);
+    tori.setMatrixAt(i, m);
+    tori.setColorAt(i, col.setHex(COL.city[(i + 3) % COL.city.length]));
+  }
+  g.add(tori);
+
+  return g;
+}
+const cityTiles = [buildCityTile(), buildCityTile()];
+cityTiles[0].position.z = 0;
+cityTiles[1].position.z = -TILE_LEN;
+scene.add(cityTiles[0], cityTiles[1]);
+// The background stays intentionally quiet so arithmetic decisions own the frame.
+cityTiles.forEach(tile => { tile.visible = false; });
+
+// ----- Floating decorations (drift above the city) ------------------------------
 const decos = [];
 {
   const geos = [
     new THREE.IcosahedronGeometry(1, 0),
-    new THREE.TorusGeometry(0.9, 0.35, 12, 24),
+    new THREE.DodecahedronGeometry(1, 0),
     new THREE.SphereGeometry(0.9, 20, 16),
     new THREE.OctahedronGeometry(1, 0),
+    new THREE.BoxGeometry(1.2, 1.2, 1.2),
   ];
   for (let i = 0; i < 16; i++) {
     const mesh = new THREE.Mesh(
       geos[i % geos.length],
-      new THREE.MeshStandardMaterial({ color: COL.deco[i % COL.deco.length], roughness: 0.6 })
+      new THREE.MeshStandardMaterial({ color: COL.city[i % COL.city.length], roughness: 0.55 })
     );
     const side = i % 2 === 0 ? 1 : -1;
-    mesh.position.set(side * (9 + Math.random() * 14), 1 + Math.random() * 7, -Math.random() * 180);
+    mesh.position.set(side * (9 + Math.random() * 16), 5 + Math.random() * 7, -Math.random() * 180);
     mesh.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+    mesh.castShadow = true;
     mesh.userData.spin = (Math.random() - 0.5) * 0.8;
     scene.add(mesh);
     decos.push(mesh);
   }
 }
+decos.forEach(deco => { deco.visible = false; });
+
+// ----- Ethereal atmosphere: horizon glow, clouds, mist, sun streak ----------------
+function makeGlowTexture(size = 256) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.35, 'rgba(255,244,224,0.55)');
+  grad.addColorStop(1, 'rgba(255,244,224,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(c);
+}
+
+function makeCloudTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  const puffs = [[70, 80, 45], [120, 66, 55], [180, 82, 42], [95, 92, 35], [150, 95, 40], [210, 95, 28], [45, 95, 26]];
+  for (const [x, y, r] of puffs) {
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+    grad.addColorStop(0.7, 'rgba(255,255,255,0.35)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 128);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+// "walking into the light": a large additive sun glow at the vanishing point
+const horizonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: makeGlowTexture(),
+  transparent: true,
+  opacity: 0.95,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+}));
+horizonGlow.material.fog = false;
+horizonGlow.material.opacity = 0.65;
+horizonGlow.material.color.setHex(0xfff0dc);
+horizonGlow.position.set(0, 5, -235);
+horizonGlow.scale.set(105, 55, 1);
+scene.add(horizonGlow);
+horizonGlow.visible = false;
+
+const cloudTex = makeCloudTexture();
+const skyClouds = [];
+const mistClouds = [];
+for (let i = 0; i < 12; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, opacity: 0.55 + Math.random() * 0.3, depthWrite: false }));
+  const side = i % 2 === 0 ? 1 : -1;
+  sp.position.set(side * (12 + Math.random() * 60), 12 + Math.random() * 18, -30 - Math.random() * 200);
+  const s = 18 + Math.random() * 26;
+  sp.scale.set(s, s * 0.45, 1);
+  scene.add(sp);
+  sp.material.color.setHex(i % 3 === 0 ? 0xffe8d7 : 0xffffff);
+  skyClouds.push(sp);
+}
+// low mist the columns rise out of
+for (let i = 0; i < 10; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, opacity: 0.3 + Math.random() * 0.2, depthWrite: false }));
+  const side = i % 2 === 0 ? 1 : -1;
+  sp.position.set(side * (9 + Math.random() * 32), 0.6 + Math.random() * 1.6, -Math.random() * 180);
+  const s = 14 + Math.random() * 16;
+  sp.scale.set(s, s * 0.4, 1);
+  scene.add(sp);
+  sp.material.color.setHex(0xdcecff);
+  mistClouds.push(sp);
+}
+skyClouds.forEach(cloud => { cloud.visible = false; });
+mistClouds.forEach(cloud => { cloud.visible = false; });
+
+// glossy sun reflection streak down the middle of the lane
+const streak = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.4, 100),
+  new THREE.MeshBasicMaterial({
+    map: makeGlowTexture(128),
+    transparent: true,
+    opacity: 0.12,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+);
+streak.rotation.x = -Math.PI / 2;
+streak.position.set(0, 0.12, -55);
+scene.add(streak);
+streak.visible = false;
+
+// ----- Ambient sparkle field over the lane ---------------------------------------
+const sparkles = (() => {
+  const count = 130;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 30;
+    pos[i * 3 + 1] = 0.5 + Math.random() * 9;
+    pos[i * 3 + 2] = 12 - Math.random() * 170;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.14,
+    transparent: true,
+    opacity: 0.8,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+  return pts;
+})();
+sparkles.visible = false;
 
 // ----- The player character (a 3D number) --------------------------------------
 let font = null;
@@ -184,7 +521,7 @@ loadFont().then(f => {
 });
 
 const playerMat = new THREE.MeshPhysicalMaterial({
-  color: 0x4f7cff,
+  color: 0x2f6bff,
   roughness: 0.22,
   metalness: 0.1,
   clearcoat: 0.8,
@@ -196,7 +533,7 @@ const player = new THREE.Group();
 let numberMesh = null;
 const blob = new THREE.Mesh(
   new THREE.CircleGeometry(1.3, 32),
-  new THREE.MeshBasicMaterial({ color: 0x2b3a55, transparent: true, opacity: 0.15 })
+  new THREE.MeshBasicMaterial({ color: 0x2b3a55, transparent: true, opacity: 0.11 })
 );
 blob.rotation.x = -Math.PI / 2;
 scene.add(blob);
@@ -209,10 +546,9 @@ function setPlayerNumberVisual(n) {
   if (!font) return;
   if (numberMesh) {
     player.remove(numberMesh);
-    numberMesh.geometry.dispose();
+    numberMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
-  numberMesh = new THREE.Mesh(makeNumberGeometry(font, String(n), NUMBER_SIZE), playerMat);
-  numberMesh.castShadow = true;
+  numberMesh = makeNumberGroup(font, String(n), playerMat, NUMBER_SIZE);
   player.add(numberMesh);
   cardPop = 1;
 }
@@ -221,8 +557,10 @@ function setPlayerNumberVisual(n) {
 const $ = id => document.getElementById(id);
 const hud = $('hud');
 const opsBar = $('ops');
+const powersBar = $('powers');
 const scoreVal = $('score-val');
 const waveChip = $('wave-chip');
+const waveFill = $('wave-fill');
 const livesChip = $('lives-chip');
 const comboPop = $('combo-pop');
 const perfectPop = $('perfect-pop');
@@ -251,7 +589,10 @@ function showBanner(text, ms = 1400) {
 }
 
 // ----- Game state ----------------------------------------------------------------
-let wall = null;
+let wall = null;    // active wall entry: { obj, puzzle, solvedIndex, boss, z }
+let queue = [];     // upcoming wall entries, nearest first
+let passed = [];    // resolved walls sliding out behind the camera
+const opHistory = []; // values before each press, for the Undo power-up
 
 const game = {
   state: 'menu', // menu | playing | between | gameover
@@ -265,7 +606,6 @@ const game = {
   lives: 3,
   solved: 0,
   timeLeft: TIME_ATTACK_SECONDS,
-  wallZ: -100,
   spawnDist: 100,
   matchFrac: 1, // fraction of approach remaining when the match was made
   speed: BASE_SPEED,
@@ -274,40 +614,94 @@ const game = {
   lunge: 0,
   knock: 0,
   paused: false,
+  power: { slow: 2, undo: 2, skip: 1 },
+  slowTimer: 0,
 };
 window.__game = game; // debug handle
 
-// ----- Per-wave environment themes: deep runs feel like traveling somewhere ----
-const THEMES = [
-  { top: 0x7ec3ff, horizon: 0xeaf7ff, ground: 0xe0f4ea, fog: 0xdff0fb }, // meadow morning
-  { top: 0x9a8cff, horizon: 0xffd9c0, ground: 0xf0e2d6, fog: 0xf5dccb }, // sunset
-  { top: 0x46598f, horizon: 0xc9b8e8, ground: 0xcdd1e8, fog: 0xc5bce0 }, // twilight
-  { top: 0x53c6b2, horizon: 0xe8fff4, ground: 0xd6f0e2, fog: 0xdcf5ea }, // minty dawn
+// ----- Time-of-day cycle: Morning → Day → Sunset → Twilight → Night, forever ----
+// The backdrop is a pair of crossfading full-sky images; lighting, fog, floor
+// tint, and a night-time lane glow interpolate in sync. The phase advances
+// with distance travelled, so the sky doubles as a progress clock.
+const PERIODS = [
+  { name: 'Morning',  img: 'assets/sky/Morning.png',  top: 0x6fa8e8, horizon: 0xffeed6, fog: 0xf2e6d2, ground: 0xfdf8f0, sun: 0xffd9a8, sunI: 1.25, hemiI: 1.0,  lane: 0 },
+  { name: 'Day',      img: 'assets/sky/Day.png',      top: 0x3d84e0, horizon: 0xdff0fc, fog: 0xe6f0f8, ground: 0xffffff, sun: 0xfff2dd, sunI: 1.45, hemiI: 1.1,  lane: 0 },
+  { name: 'Sunset',   img: 'assets/sky/Sunset.png',   top: 0x7a5fae, horizon: 0xff9a55, fog: 0xf0a878, ground: 0xf8e8da, sun: 0xff9a5c, sunI: 1.3,  hemiI: 0.85, lane: 0.02 },
+  { name: 'Twilight', img: 'assets/sky/Twilight.png', top: 0x40447e, horizon: 0xb59fd8, fog: 0x9c92c4, ground: 0xdcd8ea, sun: 0xa48fdc, sunI: 0.95, hemiI: 0.7,  lane: 0.05 },
+  { name: 'Night',    img: 'assets/sky/Night.png',    top: 0x11173a, horizon: 0x39406e, fog: 0x3e4677, ground: 0xa2abcd, sun: 0x93a7ff, sunI: 0.7,  hemiI: 0.55, lane: 0.09 },
 ];
-const themeNow = {
-  top: new THREE.Color(THEMES[0].top),
-  horizon: new THREE.Color(THEMES[0].horizon),
-  ground: new THREE.Color(THEMES[0].ground),
-  fog: new THREE.Color(THEMES[0].fog),
-};
-const themeScratch = new THREE.Color();
+const PERIOD_DIST = 340; // world units of travel per period (~20s at cruise speed)
+let timePhase = 0;       // 0..5, wraps forever
+let laneGlow = 0;        // tile self-illumination, rises after dark for readability
 
-function updateTheme(dt) {
-  const t = THEMES[(wave() - 1) % THEMES.length];
-  const k = Math.min(dt * 0.8, 1); // slow, dreamy crossfade
-  themeNow.top.lerp(themeScratch.setHex(t.top), k);
-  themeNow.horizon.lerp(themeScratch.setHex(t.horizon), k);
-  themeNow.ground.lerp(themeScratch.setHex(t.ground), k);
-  themeNow.fog.lerp(themeScratch.setHex(t.fog), k);
-  skyMat.uniforms.topColor.value.copy(themeNow.top);
-  skyMat.uniforms.bottomColor.value.copy(themeNow.horizon);
-  groundMat.color.copy(themeNow.ground);
-  scene.fog.color.copy(themeNow.fog);
+const texLoader = new THREE.TextureLoader();
+const periodTex = PERIODS.map(p => {
+  const t = texLoader.load(p.img);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+});
+
+function makeBackdrop(z) {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(400, 225),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  m.material.fog = false;
+  m.material.toneMapped = false; // show the artwork's colors exactly as authored
+  m.position.set(0, -12, z);     // image's sun/moon sits near the lane's vanishing point
+  m.renderOrder = -10;
+  scene.add(m);
+  return m;
+}
+// the images carry their own mirrored ground, so the flat floor plane retires
+floor.visible = false;
+const backdropA = makeBackdrop(-239);   // current period
+const backdropB = makeBackdrop(-238.5); // next period, fades in on top
+
+const periodColA = new THREE.Color();
+const periodColB = new THREE.Color();
+function lerpHex(aHex, bHex, t) {
+  return periodColA.setHex(aHex).lerp(periodColB.setHex(bHex), t);
 }
 
-function wave() { return Math.floor(game.solved / WAVE_SIZE) + 1; }
+function updatePeriod(flowDist) {
+  timePhase = (timePhase + flowDist / PERIOD_DIST) % PERIODS.length;
+  const i = Math.floor(timePhase);
+  const j = (i + 1) % PERIODS.length;
+  const t = THREE.MathUtils.smoothstep(timePhase - i, 0.72, 1); // hold, then blend into next
+  const a = PERIODS[i], b = PERIODS[j];
+
+  if (backdropA.material.map !== periodTex[i]) { backdropA.material.map = periodTex[i]; backdropA.material.needsUpdate = true; }
+  if (backdropB.material.map !== periodTex[j]) { backdropB.material.map = periodTex[j]; backdropB.material.needsUpdate = true; }
+  backdropA.material.opacity = periodTex[i].image ? 1 : 0; // hidden until loaded
+  backdropB.material.opacity = periodTex[j].image ? t : 0;
+
+  sun.color.copy(lerpHex(a.sun, b.sun, t));
+  sun.intensity = THREE.MathUtils.lerp(a.sunI, b.sunI, t);
+  ambientLight.intensity = THREE.MathUtils.lerp(a.hemiI, b.hemiI, t);
+  scene.fog.color.copy(lerpHex(a.fog, b.fog, t));
+  floorMat.color.copy(lerpHex(a.ground, b.ground, t));
+  skyMat.uniforms.topColor.value.copy(lerpHex(a.top, b.top, t));
+  skyMat.uniforms.bottomColor.value.copy(lerpHex(a.horizon, b.horizon, t));
+  laneGlow = THREE.MathUtils.lerp(a.lane, b.lane, t);
+}
+window.__setPhase = p => { timePhase = p; }; // debug: jump the time-of-day clock
+
+function wave() { return waveAt(game.solved); }
 function wallInWave() { return (game.solved % WAVE_SIZE) + 1; }
-function isBossWall() { return wallInWave() === WAVE_SIZE; }
+function isBossWall() { return wall ? wall.boss : false; }
+// Retain only a barely perceptible distance fade; the lane should read edge to edge.
+scene.fog.near = 165;
+scene.fog.far = 340;
+
+function waveAt(s) { return Math.floor(s / WAVE_SIZE) + 1; }
+function bossAt(s) { return game.mode !== 'daily' && s % WAVE_SIZE === WAVE_SIZE - 1; }
+function speedAt(w) { return BASE_SPEED + Math.min((w - 1) * 0.9, MAX_EXTRA_SPEED); }
+function budgetFor(puzzle, s) {
+  return Math.max(MIN_TIME_BUDGET, BASE_TIME_BUDGET - (waveAt(s) - 1) * 0.45)
+    + (puzzle.steps - 1) * STEP_BONUS_TIME
+    + (bossAt(s) ? 1 : 0);
+}
 
 function todayKey() {
   const d = new Date();
@@ -321,8 +715,10 @@ function updateHUD() {
   scoreVal.textContent = String(game.score);
   if (game.mode === 'daily') {
     waveChip.textContent = `WALL ${Math.min(game.solved + 1, DAILY_WALLS)}/${DAILY_WALLS}`;
+    waveFill.style.width = `${Math.round((game.solved / DAILY_WALLS) * 100)}%`;
   } else {
     waveChip.textContent = `WAVE ${wave()}${isBossWall() ? ' · BOSS' : ''}`;
+    waveFill.style.width = `${Math.round(((game.solved % WAVE_SIZE) / WAVE_SIZE) * 100)}%`;
   }
   if (game.mode === 'time') {
     livesChip.textContent = `⏱ ${Math.max(Math.ceil(game.timeLeft), 0)}s`;
@@ -333,14 +729,16 @@ function updateHUD() {
   eqTarget.textContent = String(game.target);
   const matched = game.current === game.target;
   equation.classList.toggle('matched', matched);
-  setWallMatchGlow(wall, matched);
+  setWallMatchGlow(wall ? wall.obj : null, matched);
 }
+
+const OP_CLASS = { '+': 'op-add', '−': 'op-sub', '×': 'op-mul', '÷': 'op-div' };
 
 function renderButtons() {
   opsBar.innerHTML = '';
   game.buttons.forEach((op, i) => {
     const btn = document.createElement('button');
-    btn.className = 'op-btn' + (isExotic(op) ? ' gold' : '');
+    btn.className = 'op-btn ' + (isExotic(op) ? 'gold' : (OP_CLASS[op.sym] || ''));
     btn.innerHTML = `${opLabel(op)}<small>${i + 1}</small>`;
     btn.addEventListener('pointerdown', () => pressOp(i));
     opsBar.appendChild(btn);
@@ -355,28 +753,84 @@ function refreshButtonStates() {
   });
 }
 
+function recordMatchTiming(wasMatched) {
+  if (game.current === game.target && wall) {
+    game.matchFrac = (PLAYER_Z - wall.z) / game.spawnDist;
+    if (!wasMatched) {
+      sfx.match();
+      spawnBurst(player.position.clone(), COL.good, 24, 5);
+    }
+  }
+}
+
 function pressOp(i) {
   if (game.state !== 'playing' || game.paused) return;
   const op = game.buttons[i];
   if (!op || !opValid(game.current, op)) return;
   ensureAudio();
   const wasMatched = game.current === game.target;
+  opHistory.push(game.current);
+  if (opHistory.length > 12) opHistory.shift();
   game.current = applyOp(game.current, op);
   if (op.uses !== undefined) op.uses -= 1; // exotic ops are single-use per wall
   setPlayerNumberVisual(game.current);
   sfx.press();
-  if (game.current === game.target) {
-    game.matchFrac = (PLAYER_Z - game.wallZ) / game.spawnDist;
-    if (!wasMatched) {
-      sfx.match();
-      spawnBurst(player.position.clone(), COL.good, 24, 5);
-    }
-  }
+  floorFlash(0x8b7cf8);
+  recordMatchTiming(wasMatched);
   const el = opsBar.children[i];
   if (el) { el.classList.add('pressed'); setTimeout(() => el.classList.remove('pressed'), 120); }
   refreshButtonStates();
   updateHUD();
 }
+
+// ----- Power-ups ------------------------------------------------------------------
+function updatePowerUI() {
+  for (const kind of ['slow', 'undo', 'skip']) {
+    $(`pw-${kind}-n`).textContent = `×${game.power[kind]}`;
+    $(`pw-${kind}`).disabled = game.power[kind] <= 0;
+  }
+}
+
+function usePower(kind) {
+  if (game.state !== 'playing' || game.paused || game.power[kind] <= 0) return;
+  ensureAudio();
+  if (kind === 'slow') {
+    game.power.slow -= 1;
+    game.slowTimer = SLOW_DURATION;
+    flashScreen('#8fb7ff', 0.2);
+    floorRipple(0x8fb7ff);
+    sfx.slow();
+  } else if (kind === 'undo') {
+    if (!opHistory.length) return;
+    game.power.undo -= 1;
+    const wasMatched = game.current === game.target;
+    game.current = opHistory.pop();
+    setPlayerNumberVisual(game.current);
+    sfx.press();
+    recordMatchTiming(wasMatched);
+    refreshButtonStates();
+    updateHUD();
+  } else if (kind === 'skip') {
+    if (!wall) return;
+    game.power.skip -= 1;
+    // safely blow up the incoming wall: no points, no heart lost, combo kept
+    spawnWallDebris(wall.z, HOLE_Y, WALL_HEIGHT, wall.obj.tint);
+    disposeWall(scene, wall.obj);
+    wall = null;
+    clearQueue();
+    game.shake = 0.7;
+    sfx.skip();
+    floorRipple(0xffd166);
+    flashScreen('#ffd166', 0.25);
+    game.state = 'between';
+    game.betweenTimer = 0.6;
+  }
+  updatePowerUI();
+}
+
+$('pw-slow').addEventListener('click', () => usePower('slow'));
+$('pw-undo').addEventListener('click', () => usePower('undo'));
+$('pw-skip').addEventListener('click', () => usePower('skip'));
 
 window.addEventListener('keydown', e => {
   if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') &&
@@ -386,7 +840,9 @@ window.addEventListener('keydown', e => {
   }
   if (game.state === 'playing' && !game.paused) {
     const i = ['1', '2', '3', '4'].indexOf(e.key);
-    if (i >= 0) pressOp(i);
+    if (i >= 0) { pressOp(i); return; }
+    const pw = { q: 'slow', w: 'undo', e: 'skip' }[e.key.toLowerCase()];
+    if (pw) usePower(pw);
   } else if (game.state === 'gameover' && (e.key === ' ' || e.key === 'Enter')) {
     startGame(game.mode);
   }
@@ -414,39 +870,83 @@ $('quit-btn').addEventListener('click', () => {
   game.paused = false;
   pauseScreen.classList.add('hidden');
   game.state = 'menu';
-  if (wall) { disposeWall(scene, wall); wall = null; }
+  clearAllWalls();
   hud.classList.remove('visible');
   opsBar.classList.remove('visible');
+  powersBar.classList.remove('visible');
   refreshMenuBests();
   menuScreen.classList.remove('hidden');
 });
 
-// ----- Wall lifecycle --------------------------------------------------------------
-function spawnWall() {
-  const boss = game.mode !== 'daily' && isBossWall();
-  const puzzle = makePuzzle(game.current, { wave: wave(), boss, rng: game.rng });
-  game.target = puzzle.target;
-  game.buttons = puzzle.buttons;
+// ----- Wall queue lifecycle ---------------------------------------------------------
+function makeEntry(value, s) {
+  const boss = bossAt(s);
+  const puzzle = makePuzzle(value, { wave: waveAt(s), boss, rng: game.rng });
+  const obj = buildWall(font, puzzle.target, { boss, tint: WALL_TINTS[s % WALL_TINTS.length] });
+  return { obj, puzzle, solvedIndex: s, boss, z: 0 };
+}
+
+function clearQueue() {
+  for (const q of queue) disposeWall(scene, q.obj);
+  queue = [];
+}
+
+function clearAllWalls() {
+  if (wall) { disposeWall(scene, wall.obj); wall = null; }
+  clearQueue();
+  for (const p of passed) disposeWall(scene, p.obj);
+  passed = [];
+}
+
+// Build the active wall plus QUEUE_AHEAD upcoming walls. Upcoming puzzles are
+// generated from each wall's own target: after a pass the number always equals
+// that target, so the future is deterministic until a crash rewrites it.
+function spawnWalls() {
+  if (wall) { disposeWall(scene, wall.obj); wall = null; }
+  clearQueue();
+  let value = game.current;
+  let z = PLAYER_Z;
+  const entries = [];
+  for (let k = 0; k <= QUEUE_AHEAD; k++) {
+    const s = game.solved + k;
+    const e = makeEntry(value, s);
+    z -= speedAt(waveAt(s)) * budgetFor(e.puzzle, s);
+    e.z = z;
+    e.obj.group.position.z = z;
+    scene.add(e.obj.group);
+    entries.push(e);
+    value = e.puzzle.target;
+  }
+  activate(entries.shift());
+  queue = entries;
+  game.state = 'playing';
+}
+
+function activate(entry) {
+  wall = entry;
+  game.target = entry.puzzle.target;
+  game.buttons = entry.puzzle.buttons;
   game.matchFrac = 1;
-
-  const budget = Math.max(MIN_TIME_BUDGET, BASE_TIME_BUDGET - (wave() - 1) * 0.45)
-    + (puzzle.steps - 1) * STEP_BONUS_TIME
-    + (boss ? 1 : 0);
-  game.speed = BASE_SPEED + Math.min((wave() - 1) * 0.9, MAX_EXTRA_SPEED);
-  game.wallZ = PLAYER_Z - game.speed * budget;
-  game.spawnDist = PLAYER_Z - game.wallZ;
-
-  if (wall) { disposeWall(scene, wall); wall = null; }
-  wall = buildWall(font, game.target, { boss });
-  wall.group.position.z = game.wallZ;
-  scene.add(wall.group);
-
-  if (boss) { showBanner('BOSS WALL!'); sfx.boss(); }
-  else if (wallInWave() === 1 && game.mode !== 'daily') { showBanner(`WAVE ${wave()}`); sfx.wave(); }
-
+  game.spawnDist = Math.max(PLAYER_Z - entry.z, 1);
+  game.speed = speedAt(waveAt(entry.solvedIndex));
+  opHistory.length = 0;
+  if (entry.boss) { showBanner('BOSS WALL!'); sfx.boss(); }
+  else if (entry.solvedIndex > 0 && entry.solvedIndex % WAVE_SIZE === 0 && game.mode !== 'daily') {
+    showBanner(`WAVE ${waveAt(entry.solvedIndex)}`);
+    sfx.wave();
+  }
   renderButtons();
   updateHUD();
-  game.state = 'playing';
+}
+
+function extendQueue() {
+  const tail = queue.length ? queue[queue.length - 1] : wall;
+  const s = tail.solvedIndex + 1;
+  const e = makeEntry(tail.puzzle.target, s);
+  e.z = tail.z - speedAt(waveAt(s)) * budgetFor(e.puzzle, s);
+  e.obj.group.position.z = e.z;
+  scene.add(e.obj.group);
+  queue.push(e);
 }
 
 function onWallReached() {
@@ -468,6 +968,7 @@ function onWallReached() {
       sfx.success();
     }
     flashScreen('#3ecf8e', 0.25);
+    floorRipple(perfect ? 0xffd166 : 0x3ecf8e); // gold ripple for a PERFECT
     spawnBurst(new THREE.Vector3(0, HOLE_Y, PLAYER_Z), COL.good, 80, 11);
     game.lunge = 1; // the number dives through the hole
     if (game.combo >= 2) {
@@ -475,30 +976,39 @@ function onWallReached() {
       comboPop.classList.add('show');
       setTimeout(() => comboPop.classList.remove('show'), 900);
     }
+    if (wall.boss) {
+      // bosses restock the power-ups
+      for (const k of ['slow', 'undo', 'skip']) game.power[k] = Math.min(game.power[k] + 1, 3);
+      updatePowerUI();
+    }
+    passed.push(wall);
+    wall = null;
     if (game.mode === 'daily' && game.solved >= DAILY_WALLS) {
       updateHUD();
       endGame('complete');
       return;
     }
-    game.state = 'between';
-    // longer breather before a new wave starts
-    game.betweenTimer = game.solved % WAVE_SIZE === 0 ? 2.2 : 0.9;
+    extendQueue();
+    activate(queue.shift());
   } else {
     // ---- CRASH ----
     game.combo = 0;
     game.knock = 1; // the number bounces off the wall
     sfx.fail();
+    floorCrack();
     flashScreen('#ff5a76', 0.45);
     spawnBurst(player.position.clone(), COL.bad, 90, 13);
     if (wall.boss) {
       // reinforced: it doesn't break — it barrels through and hits harder
       game.shake = 1.4;
+      passed.push(wall);
     } else {
       game.shake = 1;
-      spawnWallDebris(game.wallZ, HOLE_Y, WALL_HEIGHT);
-      disposeWall(scene, wall);
-      wall = null;
+      spawnWallDebris(wall.z, HOLE_Y, WALL_HEIGHT, wall.obj.tint);
+      disposeWall(scene, wall.obj);
     }
+    wall = null;
+    clearQueue(); // the future assumed success; rebuild it from reality
     if (game.mode === 'time') {
       game.timeLeft -= CRASH_TIME_PENALTY;
       if (game.timeLeft <= 0) { updateHUD(); endGame('time'); return; }
@@ -508,8 +1018,8 @@ function onWallReached() {
     }
     game.state = 'between';
     game.betweenTimer = 1.4;
+    updateHUD();
   }
-  updateHUD();
 }
 
 // ----- Game flow ---------------------------------------------------------------------
@@ -523,6 +1033,8 @@ function startGame(mode) {
   game.lives = 3;
   game.solved = 0;
   game.timeLeft = TIME_ATTACK_SECONDS;
+  game.power = { slow: 2, undo: 2, skip: 1 };
+  game.slowTimer = 0;
   game.current = randStart(game.rng);
   setPlayerNumberVisual(game.current);
   cardPop = 0;
@@ -530,16 +1042,20 @@ function startGame(mode) {
   gameoverScreen.classList.add('hidden');
   hud.classList.add('visible');
   opsBar.classList.add('visible');
-  if (wall) { disposeWall(scene, wall); wall = null; }
-  spawnWall();
+  powersBar.classList.add('visible');
+  clearAllWalls();
+  spawnWalls();
+  updatePowerUI();
+  if (mode !== 'daily') { showBanner('WAVE 1'); sfx.wave(); }
 }
 window.__start = startGame; // debug handle
 
 function endGame(reason) {
   game.state = 'gameover';
-  if (wall) { disposeWall(scene, wall); wall = null; }
+  clearAllWalls();
   hud.classList.remove('visible');
   opsBar.classList.remove('visible');
+  powersBar.classList.remove('visible');
   const best = Math.max(game.score, Number(localStorage.getItem(bestKey()) || 0));
   localStorage.setItem(bestKey(), String(best));
   $('gameover-title').textContent =
@@ -569,6 +1085,7 @@ $('menu-btn').addEventListener('click', () => {
 
 // ----- Main loop ------------------------------------------------------------------------
 const clock = new THREE.Clock();
+const bubblePos = new THREE.Vector3(); // scratch for the equation speech bubble
 let elapsed = 0;
 let settle = 1; // 1 = free idle bob, 0 = locked dead-center to thread the cutout
 let lastTickSecond = -1;
@@ -580,18 +1097,45 @@ function animate() {
   const dt = game.paused ? 0 : Math.min(rawDt, 0.05);
   elapsed += dt;
 
-  // scrolling ground + drifting decorations sell forward motion
-  const flow = (game.state === 'playing' || game.state === 'between') ? game.speed : 6;
-  groundTex.offset.y -= (flow * dt) / 10;
+  // Slow Time power-up: the whole world drops into bullet-time
+  if (game.slowTimer > 0) game.slowTimer = Math.max(0, game.slowTimer - dt);
+  const factor = game.slowTimer > 0 ? SLOW_FACTOR : 1;
+
+  // scrolling track + treadmill world sell forward motion
+  const running = game.state === 'playing' || game.state === 'between';
+  const flow = (running ? game.speed : 6) * factor;
+  updateFloor(dt, flow);
+  for (const tile of cityTiles) {
+    tile.position.z += flow * dt;
+    if (tile.position.z > TILE_LEN) tile.position.z -= 2 * TILE_LEN;
+  }
   for (const d of decos) {
     d.position.z += flow * dt * 0.9;
     d.rotation.y += d.userData.spin * dt;
     d.rotation.x += d.userData.spin * 0.6 * dt;
     if (d.position.z > 15) d.position.z -= 200;
   }
+  // clouds drift past with parallax; mist hugs the ground and moves with the world
+  for (const cl of skyClouds) {
+    cl.position.z += flow * dt * 0.15;
+    if (cl.position.z > 20) cl.position.z -= 260;
+  }
+  for (const cl of mistClouds) {
+    cl.position.z += flow * dt * 0.85;
+    if (cl.position.z > 18) cl.position.z -= 200;
+  }
+  // sparkles drift past with the world
+  {
+    const arr = sparkles.geometry.attributes.position.array;
+    for (let i = 0; i < arr.length; i += 3) {
+      arr[i + 2] += flow * dt;
+      if (arr[i + 2] > 12) arr[i + 2] -= 170;
+    }
+    sparkles.geometry.attributes.position.needsUpdate = true;
+  }
 
   // time attack clock
-  if (game.mode === 'time' && (game.state === 'playing' || game.state === 'between')) {
+  if (game.mode === 'time' && running) {
     game.timeLeft -= dt;
     const sec = Math.ceil(game.timeLeft);
     if (sec !== lastTickSecond) {
@@ -618,7 +1162,7 @@ function animate() {
   }
   // bob and sway settle to zero while a wall is near, so the number lines up
   // with the cutout and threads it dead-center
-  const settleTarget = wall ? THREE.MathUtils.clamp(((PLAYER_Z - game.wallZ) - 4) / 10, 0, 1) : 1;
+  const settleTarget = wall ? THREE.MathUtils.clamp(((PLAYER_Z - wall.z) - 4) / 10, 0, 1) : 1;
   settle += (settleTarget - settle) * Math.min(dt * 6, 1);
   player.position.y = PLAYER_Y + Math.sin(elapsed * 2.2) * 0.15 * settle;
   player.position.z = PLAYER_Z + zOff;
@@ -633,22 +1177,33 @@ function animate() {
     player.scale.setScalar(1);
   }
 
-  // wall approach
+  // conveyor: active wall + queue advance together
   if (game.state === 'playing' && wall) {
-    game.wallZ += game.speed * dt;
-    wall.group.position.z = game.wallZ;
-    // glow reads as a sign from afar, fades so the cutout shows as a real hole up close
-    const dist = PLAYER_Z - game.wallZ;
-    wall.glowMat.opacity = wall.glowBase * THREE.MathUtils.clamp((dist - 6) / 24, 0.3, 1);
-    if (game.wallZ >= PLAYER_Z - 0.6) onWallReached();
-  } else if (game.state === 'between') {
-    if (wall) { // passed (or boss) wall keeps sliding behind the camera
-      game.wallZ += game.speed * dt;
-      wall.group.position.z = game.wallZ;
-      if (game.wallZ > 25) { disposeWall(scene, wall); wall = null; }
+    const adv = game.speed * factor * dt;
+    wall.z += adv;
+    wall.obj.group.position.z = wall.z;
+    for (const q of queue) {
+      q.z += adv;
+      q.obj.group.position.z = q.z;
     }
+    // glow reads as a sign from afar, fades so the cutout shows as a real hole up close
+    const dist = PLAYER_Z - wall.z;
+    wall.obj.glowMat.opacity = wall.obj.glowBase * THREE.MathUtils.clamp((dist - 6) / 24, 0.3, 1);
+    if (wall.z >= PLAYER_Z - 0.6) onWallReached();
+  } else if (game.state === 'between') {
     game.betweenTimer -= dt;
-    if (game.betweenTimer <= 0) spawnWall();
+    if (game.betweenTimer <= 0) spawnWalls();
+  }
+
+  // resolved walls keep sliding out behind the camera
+  for (let i = passed.length - 1; i >= 0; i--) {
+    const p = passed[i];
+    p.z += game.speed * factor * dt;
+    p.obj.group.position.z = p.z;
+    if (p.z > 25) {
+      disposeWall(scene, p.obj);
+      passed.splice(i, 1);
+    }
   }
 
   // camera shake decay
@@ -664,7 +1219,13 @@ function animate() {
     camera.position.copy(camBase);
   }
 
-  updateTheme(dt);
+  // equation chip rides above the number's head like a speech bubble,
+  // so the character itself is never covered by UI
+  bubblePos.set(player.position.x, player.position.y + 2.0, player.position.z).project(camera);
+  equation.style.left = `${(bubblePos.x * 0.5 + 0.5) * window.innerWidth}px`;
+  equation.style.top = `${(-bubblePos.y * 0.5 + 0.5) * window.innerHeight - 10}px`;
+
+  updatePeriod(flow * dt);
   updateFX(dt);
   composer.render();
 }

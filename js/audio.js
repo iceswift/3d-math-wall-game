@@ -36,4 +36,6 @@ export const sfx = {
   wave: () => { tone(440, 0.15, 'triangle', 0.14); tone(660, 0.25, 'triangle', 0.12, 0.12); },
   boss: () => { tone(110, 0.5, 'sawtooth', 0.14); tone(165, 0.5, 'sawtooth', 0.1, 0.05); },
   tick: () => tone(1200, 0.04, 'square', 0.05),
+  slow: () => { tone(300, 0.35, 'sine', 0.14); tone(150, 0.5, 'sine', 0.1, 0.1); },
+  skip: () => { tone(520, 0.12, 'sawtooth', 0.12); tone(260, 0.22, 'sawtooth', 0.1, 0.08); },
 };

@@ -46,9 +46,36 @@
     box-shadow: 0 4px 16px rgba(43,58,85,0.12);
   }
   #score-chip { top: 18px; left: 18px; font-size: 22px; }
-  #score-chip small { display: block; font-size: 11px; opacity: 0.55; letter-spacing: 2px; }
-  #wave-chip { top: 18px; left: 50%; transform: translateX(-50%); font-size: 14px; letter-spacing: 2px; padding: 12px 18px; }
-  #lives-chip { top: 18px; right: 18px; font-size: 20px; letter-spacing: 3px; }
+  #score-chip small { display: block; font-size: 11px; color: #8b7cf8; opacity: 1; letter-spacing: 2px; }
+  #wave-chip {
+    top: 16px; left: 50%; transform: translateX(-50%);
+    font-size: 18px; letter-spacing: 3px;
+    background: none; box-shadow: none; backdrop-filter: none;
+    color: #ffffff;
+    text-shadow: 0 2px 8px rgba(43,58,85,0.45);
+  }
+  #wave-progress {
+    position: absolute;
+    top: 66px; left: 50%;
+    transform: translateX(-50%);
+    width: 150px; height: 10px;
+    background: rgba(255,255,255,0.65);
+    border-radius: 6px;
+    box-shadow: 0 3px 10px rgba(43,58,85,0.12);
+  }
+  #wave-fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #8ee86e, #3ecf8e);
+    border-radius: 6px;
+    transition: width 0.3s ease;
+  }
+  #wave-progress::after {
+    content: '🏁';
+    position: absolute;
+    right: -24px; top: -5px;
+    font-size: 15px;
+  }
+  #lives-chip { top: 18px; right: 18px; font-size: 20px; letter-spacing: 3px; color: #ff4d5e; }
   #pause-btn {
     top: 74px; right: 18px;
     pointer-events: auto;
@@ -57,6 +84,7 @@
     font-family: inherit;
     font-size: 15px;
     padding: 8px 14px;
+    color: #8b7cf8;
   }
   #combo-pop {
     position: absolute; top: 16%; left: 50%;
@@ -90,9 +118,10 @@
 
   /* ---------- Equation strip ---------- */
   #equation {
+    /* speech bubble: JS anchors it above the 3D number every frame */
     position: absolute;
-    bottom: 128px; left: 50%;
-    transform: translateX(-50%);
+    left: 50%; top: 60%;
+    transform: translate(-50%, -100%);
     background: rgba(255,255,255,0.8);
     backdrop-filter: blur(6px);
     border-radius: 14px;
@@ -109,22 +138,22 @@
   /* ---------- Operation buttons ---------- */
   #ops {
     position: fixed;
-    bottom: 26px; left: 50%;
+    bottom: 96px; left: 50%;
     transform: translateX(-50%);
     display: none;
-    gap: 14px;
+    gap: 12px;
   }
   #ops.visible { display: flex; }
   .op-btn {
     pointer-events: auto;
-    min-width: 88px;
-    padding: 16px 10px 12px;
+    min-width: 86px;
+    padding: 14px 10px 12px;
     border: none;
     border-radius: 20px;
     background: #ffffff;
     color: var(--ink);
     font-family: inherit;
-    font-size: 30px;
+    font-size: 28px;
     font-weight: 900;
     cursor: pointer;
     box-shadow: 0 6px 0 rgba(43,58,85,0.18), 0 10px 24px rgba(43,58,85,0.14);
@@ -141,12 +170,68 @@
   }
   .op-btn:disabled { opacity: 0.35; cursor: default; }
   .op-btn small {
-    display: block;
+    display: inline-block;
     font-size: 11px;
-    font-weight: 700;
-    opacity: 0.4;
-    margin-top: 2px;
+    font-weight: 800;
+    margin-top: 4px;
+    padding: 1px 10px;
+    border-radius: 8px;
+    background: rgba(43,58,85,0.08);
+    opacity: 1;
   }
+  .op-btn { display: flex; flex-direction: column; align-items: center; }
+  /* operator families are color-coded for fast recognition under pressure */
+  .op-btn.op-add { color: #1fa46b; }
+  .op-btn.op-add small { background: #d9f5e7; color: #1fa46b; }
+  .op-btn.op-sub { color: #e04b64; }
+  .op-btn.op-sub small { background: #ffe0e6; color: #e04b64; }
+  .op-btn.op-mul { color: #e08a1f; }
+  .op-btn.op-mul small { background: #ffefd6; color: #e08a1f; }
+  .op-btn.op-div { color: #3d6dcc; }
+  .op-btn.op-div small { background: #dee9ff; color: #3d6dcc; }
+
+  /* ---------- Power-ups ---------- */
+  /* power-ups: centered bottom row under the op buttons, on every screen size */
+  #powers {
+    position: fixed;
+    bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  #powers.visible { display: flex; }
+  #powers-label { display: none; }
+  #powers-row { display: flex; flex-direction: row; gap: 10px; }
+  .pw-btn { flex-direction: row; gap: 6px; min-width: 0; padding: 8px 14px; }
+  .pw-btn {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    min-width: 86px;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.92);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 rgba(43,58,85,0.15), 0 8px 18px rgba(43,58,85,0.12);
+    transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.15s;
+  }
+  .pw-btn .ico { font-size: 19px; }
+  .pw-btn b { color: var(--accent); font-size: 12px; }
+  .pw-btn:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 rgba(43,58,85,0.15), 0 4px 8px rgba(43,58,85,0.1);
+  }
+  .pw-btn:disabled { opacity: 0.35; cursor: default; }
 
   /* ---------- Overlay screens ---------- */
   .screen {
@@ -235,13 +320,17 @@
 
   /* ---------- Small screens (portrait phones) ---------- */
   @media (max-width: 480px) {
-    #ops { gap: 10px; bottom: 18px; }
+    #ops { gap: 10px; bottom: 88px; }
     .op-btn { min-width: 72px; font-size: 24px; padding: 12px 6px 10px; border-radius: 16px; }
-    #equation { font-size: 19px; bottom: 104px; padding: 6px 16px; }
+    #equation { font-size: 19px; padding: 6px 16px; }
     #score-chip { font-size: 18px; padding: 8px 14px; }
     #wave-chip { font-size: 11px; padding: 10px 12px; letter-spacing: 1px; }
+    #wave-progress { width: 110px; top: 58px; }
     #lives-chip { font-size: 16px; padding: 8px 12px; }
     #pause-btn { top: 64px; font-size: 13px; padding: 7px 12px; }
+    #powers { gap: 8px; bottom: 14px; }
+    .pw-btn { min-width: 70px; font-size: 10px; padding: 6px 8px; }
+    .pw-btn .ico { font-size: 16px; }
   }
 </style>
 <script type="importmap">
@@ -254,6 +343,7 @@
   <div id="hud">
     <div class="hud-chip" id="score-chip"><small>SCORE</small><span id="score-val">0</span></div>
     <div class="hud-chip" id="wave-chip">WAVE 1</div>
+    <div id="wave-progress"><div id="wave-fill"></div></div>
     <div class="hud-chip" id="lives-chip">❤❤❤</div>
     <button class="hud-chip" id="pause-btn">⏸ PAUSE</button>
     <div id="combo-pop"></div>
@@ -263,6 +353,15 @@
   </div>
 
   <div id="ops"></div>
+
+  <div id="powers">
+    <div id="powers-label">·—· POWER UPS ·—·</div>
+    <div id="powers-row">
+      <button class="pw-btn" id="pw-slow"><span class="ico">⏱</span>SLOW<b id="pw-slow-n">×2</b></button>
+      <button class="pw-btn" id="pw-undo"><span class="ico">↩</span>UNDO<b id="pw-undo-n">×2</b></button>
+      <button class="pw-btn" id="pw-skip"><span class="ico">💥</span>SKIP<b id="pw-skip-n">×1</b></button>
+    </div>
+  </div>
 
   <div class="screen" id="menu-screen">
     <h1>3D MATH WALL</h1>

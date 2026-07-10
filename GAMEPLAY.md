@@ -49,6 +49,24 @@ Operators unlock by wave, so the math vocabulary grows during a run:
 - All puzzles remain integer-only and within 0–9999; division buttons disable
   when the value isn't divisible.
 
+## Wall queue
+
+Walls arrive as a continuous conveyor: the next `2` walls are visible in the
+distance behind the active one, each showing its target. Upcoming puzzles are
+pre-generated from the previous wall's target (after a pass your number always
+equals it), so skilled players can plan operations ahead. A crash or a Skip
+invalidates that assumed future, so the queue is rebuilt from the real value.
+
+## Power-ups
+
+| Power | Effect | Key |
+|---|---|---|
+| ⏱ Slow | World drops to 45% speed for 4s | Q |
+| ↩ Undo | Revert your last operation | W |
+| 💥 Skip | Safely destroy the incoming wall — no points, no heart lost, combo kept | E |
+
+Runs start with 2 / 2 / 1 charges; clearing a boss restocks each by +1 (cap 3).
+
 ## Modes
 
 - **Classic** — 3 hearts, endless waves, difficulty ramps forever. The default.

@@ -58,17 +58,20 @@ export function spawnBurst(pos, colorHex, count = 60, power = 9) {
   bursts.push({ points, velocities, life: 1 });
 }
 
-export function spawnWallDebris(wallZ, holeY, wallHeight) {
+export function spawnWallDebris(wallZ, holeY, wallHeight, colorHex) {
+  const tintMat = colorHex !== undefined
+    ? new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.75 })
+    : debrisMat;
   for (let i = 0; i < 46; i++) {
     const s = 0.35 + Math.random() * 0.9;
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(s, s, s * 0.6),
-      Math.random() < 0.12 ? frameDebrisMat : debrisMat
+      Math.random() < 0.12 ? frameDebrisMat : tintMat
     );
     // spawn across the wall, denser near the hole where the impact happened
     const nearHole = Math.random() < 0.5;
-    const x = nearHole ? (Math.random() - 0.5) * 8 : (Math.random() - 0.5) * 22;
-    const y = nearHole ? holeY + (Math.random() - 0.5) * 5 : Math.random() * wallHeight;
+    const x = nearHole ? (Math.random() - 0.5) * 7 : (Math.random() - 0.5) * 13;
+    const y = nearHole ? holeY + (Math.random() - 0.5) * 4 : Math.random() * wallHeight;
     mesh.position.set(x, Math.max(y, 0.3), wallZ);
     mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     mesh.castShadow = true;
