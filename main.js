@@ -324,7 +324,18 @@ const curbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3
 const TILE_LEN = 120;
 const envMats = {
   terrain: new THREE.MeshStandardMaterial({ color: 0xaacfae, roughness: 1, flatShading: true }),
-  spire: new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true }),
+  trunk: new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }),
+  canopy: new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }),
+  // two crystal materials pulsing out of phase, so the glow shimmers across
+  // the landscape instead of breathing in unison
+  crystalA: new THREE.MeshStandardMaterial({
+    roughness: 0.3, metalness: 0.1, flatShading: true,
+    emissive: 0x9f8fff, emissiveIntensity: 0,
+  }),
+  crystalB: new THREE.MeshStandardMaterial({
+    roughness: 0.3, metalness: 0.1, flatShading: true,
+    emissive: 0x9f8fff, emissiveIntensity: 0,
+  }),
 };
 
 function terrainHeight(x, zz) { // zz ∈ [0, TILE_LEN), periodic in z
@@ -354,29 +365,137 @@ function buildEnvTile() {
   terrain.receiveShadow = true;
   g.add(terrain);
 
-  // tapered spires standing on the hills
-  const spires = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 6), envMats.spire, 46);
+  // pine groves: trunks + two canopy tiers as parallel instanced meshes,
+  // planted in clusters so the forest reads as designed, not sprinkled
+  const TREES = 60;
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.2, 1, 5), envMats.trunk, TREES);
+  const lowerTier = new THREE.InstancedMesh(new THREE.ConeGeometry(1.15, 2.2, 6), envMats.canopy, TREES);
+  const upperTier = new THREE.InstancedMesh(new THREE.ConeGeometry(0.8, 1.7, 6), envMats.canopy, TREES);
   const m = new THREE.Matrix4();
   const col = new THREE.Color();
-  for (let i = 0; i < 46; i++) {
-    const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (20 + Math.random() * 58);
-    const zLocal = -TILE_LEN / 2 + Math.random() * TILE_LEN;
-    const zz = (zLocal + TILE_LEN / 2) % TILE_LEN;
-    const r = 1.6 + Math.random() * 3.4;
-    const h = 7 + Math.random() * 16;
-    m.makeScale(r, h, r);
-    m.setPosition(x, -6.5 + terrainHeight(x, zz) + h / 2 - 0.6, zLocal);
-    spires.setMatrixAt(i, m);
-    spires.setColorAt(i, col.setHex(COL.city[i % COL.city.length]));
+  const canopyShades = [0x86b892, 0x74a982, 0x93c49b, 0x7fae8a];
+  let ti = 0;
+  for (let grove = 0; grove < 10 && ti < TREES; grove++) {
+    const side = grove % 2 === 0 ? 1 : -1;
+    const gx = side * (21 + Math.random() * 44);
+    const gz = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const n = 4 + Math.floor(Math.random() * 5);
+    for (let k = 0; k < n && ti < TREES; k++) {
+      const x = gx + (Math.random() - 0.5) * 11;
+      if (Math.abs(x) < 17) continue; // never inside the lane corridor
+      const zL = gz + (Math.random() - 0.5) * 11;
+      const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+      const s = 1.1 + Math.random() * 1.6;
+      const baseY = -6.5 + terrainHeight(x, zz);
+      m.makeScale(s, s, s);
+      m.setPosition(x, baseY + 0.5 * s, zL);
+      trunks.setMatrixAt(ti, m);
+      m.setPosition(x, baseY + 2.0 * s, zL);
+      lowerTier.setMatrixAt(ti, m);
+      m.setPosition(x, baseY + 3.4 * s, zL);
+      upperTier.setMatrixAt(ti, m);
+      col.setHex(canopyShades[ti % canopyShades.length]);
+      lowerTier.setColorAt(ti, col);
+      upperTier.setColorAt(ti, col);
+      trunks.setColorAt(ti, col.setHex(0x8a7263));
+      ti++;
+    }
   }
-  g.add(spires);
+  // park unused instances out of sight
+  m.makeScale(0.001, 0.001, 0.001);
+  m.setPosition(0, -60, 0);
+  for (let k = ti; k < TREES; k++) {
+    trunks.setMatrixAt(k, m);
+    lowerTier.setMatrixAt(k, m);
+    upperTier.setMatrixAt(k, m);
+  }
+  g.add(trunks, lowerTier, upperTier);
+
+  // crystal formations jutting from the hills — the world grows the same
+  // gem language as the number pieces, and they glow after dark
+  const CRYSTALS = 14;
+  const crysGeo = new THREE.OctahedronGeometry(1, 0);
+  crysGeo.scale(0.6, 1.6, 0.6);
+  const crystalsA = new THREE.InstancedMesh(crysGeo, envMats.crystalA, CRYSTALS / 2);
+  const crystalsB = new THREE.InstancedMesh(crysGeo, envMats.crystalB, CRYSTALS / 2);
+  const gemShades = [0xb9a8f5, 0x9fd8ef, 0xf5b8d9, 0xafecd6];
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), e = new THREE.Euler();
+  for (let i = 0; i < CRYSTALS; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side * (17 + Math.random() * 40);
+    const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    const s = 0.9 + Math.random() * 1.7;
+    p.set(x, -6.5 + terrainHeight(x, zz) + s * 1.1, zL);
+    q.setFromEuler(e.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5));
+    sv.setScalar(s);
+    m.compose(p, q, sv);
+    const mesh = i % 2 === 0 ? crystalsA : crystalsB;
+    const idx = Math.floor(i / 2);
+    mesh.setMatrixAt(idx, m);
+    mesh.setColorAt(idx, col.setHex(gemShades[i % gemShades.length]));
+  }
+  g.add(crystalsA, crystalsB);
   return g;
 }
 const cityTiles = [buildEnvTile(), buildEnvTile()];
 cityTiles[0].position.z = 0;
 cityTiles[1].position.z = -TILE_LEN;
 scene.add(cityTiles[0], cityTiles[1]);
+
+// ----- Far mountain ridges: three silhouette layers fading into the sky ---------
+function makeRidgeGeometry(width, maxH, peaks, seedPhase) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-width / 2, 0);
+  for (let i = 0; i <= peaks; i++) {
+    const x = -width / 2 + (i / peaks) * width;
+    const y = i === 0 || i === peaks ? 0 :
+      Math.max(maxH * (0.35 + 0.65 * Math.abs(Math.sin(i * 2.4 + seedPhase))) * (0.6 + 0.4 * Math.sin(i * 0.9 + seedPhase * 2)), 3);
+    shape.lineTo(x, y);
+  }
+  shape.lineTo(width / 2, 0);
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+const mountainMats = [];
+{
+  const layers = [
+    { z: -165, h: 26, w: 520, peaks: 11 },
+    { z: -195, h: 34, w: 620, peaks: 9 },
+    { z: -225, h: 44, w: 720, peaks: 7 },
+  ];
+  layers.forEach((L, k) => {
+    const mat = new THREE.MeshBasicMaterial({ fog: false }); // tinted per period instead
+    const ridge = new THREE.Mesh(makeRidgeGeometry(L.w, L.h, L.peaks, k * 1.7), mat);
+    ridge.position.set(0, -6.5, L.z);
+    scene.add(ridge);
+    mountainMats.push(mat);
+  });
+}
+
+// ----- Hot-air balloons drifting far off, lanterns after dark --------------------
+const balloons = [];
+{
+  const canopyGeo = new THREE.SphereGeometry(1, 10, 8);
+  canopyGeo.scale(1, 1.15, 1);
+  const basketGeo = new THREE.BoxGeometry(0.35, 0.3, 0.35);
+  const shades = [0xf5a8b8, 0xa8c8f5, 0xf5d8a0];
+  for (let i = 0; i < 3; i++) {
+    const grp = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: shades[i], roughness: 0.6, emissive: shades[i], emissiveIntensity: 0 });
+    const canopy = new THREE.Mesh(canopyGeo, mat);
+    const basket = new THREE.Mesh(basketGeo, new THREE.MeshStandardMaterial({ color: 0x8a7263, roughness: 0.9 }));
+    basket.position.y = -1.45;
+    grp.add(canopy, basket);
+    const side = i % 2 === 0 ? 1 : -1;
+    grp.position.set(side * (28 + i * 14), 13 + i * 4, -70 - i * 45);
+    grp.scale.setScalar(2.2 + i * 0.5);
+    grp.userData.baseY = 13 + i * 4;
+    grp.userData.mat = mat;
+    scene.add(grp);
+    balloons.push(grp);
+  }
+}
 
 // ----- Floating decorations (drift above the city) ------------------------------
 const decos = [];
@@ -490,6 +609,94 @@ const stars = (() => {
   scene.add(pts);
   return pts;
 })();
+
+// ----- Night magic: aurora ribbons + firefly swarms -------------------------------
+// Everything here scales with the star opacity, so it vanishes entirely by day
+// and lives off to the sides — Night gets its reward without stealing focus.
+function makeAuroraTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d');
+  const v = g.createLinearGradient(0, 0, 0, 128);
+  v.addColorStop(0, 'rgba(120,255,214,0)');
+  v.addColorStop(0.35, 'rgba(120,255,214,0.55)');
+  v.addColorStop(0.7, 'rgba(150,120,255,0.4)');
+  v.addColorStop(1, 'rgba(150,120,255,0)');
+  g.fillStyle = v;
+  g.fillRect(0, 0, 256, 128);
+  // soften the horizontal ends
+  g.globalCompositeOperation = 'destination-in';
+  const hMask = g.createLinearGradient(0, 0, 256, 0);
+  hMask.addColorStop(0, 'rgba(0,0,0,0)');
+  hMask.addColorStop(0.25, 'rgba(0,0,0,1)');
+  hMask.addColorStop(0.75, 'rgba(0,0,0,1)');
+  hMask.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = hMask;
+  g.fillRect(0, 0, 256, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const auroras = [];
+{
+  const tex = makeAuroraTexture();
+  const bands = [
+    { x: -45, y: 40, z: -205, w: 230, h: 42, tilt: 0.16 },
+    { x: 55, y: 48, z: -215, w: 170, h: 34, tilt: -0.12 },
+  ];
+  for (const b of bands) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    mat.fog = false;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(b.w, b.h), mat);
+    mesh.position.set(b.x, b.y, b.z);
+    mesh.rotation.z = b.tilt;
+    mesh.userData.tilt = b.tilt;
+    scene.add(mesh);
+    auroras.push(mesh);
+  }
+}
+
+const fireflySwarms = [];
+{
+  const swarmDefs = [
+    { color: 0xa8f5d8, phase: 0.0, speed: 1.1 },
+    { color: 0xffe2a0, phase: 2.1, speed: 0.8 },
+    { color: 0xcdb8ff, phase: 4.2, speed: 1.4 },
+  ];
+  for (const def of swarmDefs) {
+    const n = 30;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const side = i % 2 === 0 ? 1 : -1;
+      pos[i * 3] = side * (13 + Math.random() * 38);
+      pos[i * 3 + 1] = -4 + Math.random() * 7;
+      pos[i * 3 + 2] = 12 - Math.random() * 170;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: def.color,
+      size: 0.24,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    mat.fog = false;
+    const pts = new THREE.Points(geo, mat);
+    pts.userData = def;
+    scene.add(pts);
+    fireflySwarms.push(pts);
+  }
+}
+let nightAmount = 0; // star opacity mirrored for the animation loop
 
 const cloudTex = makeCloudTexture();
 const skyClouds = [];
@@ -696,6 +903,8 @@ floor.visible = false;
 const periodColA = new THREE.Color();
 const periodColB = new THREE.Color();
 const cloudTint = new THREE.Color();
+const crysCol = new THREE.Color();
+const crysCol2 = new THREE.Color();
 function lerpHex(aHex, bHex, t) {
   return periodColA.setHex(aHex).lerp(periodColB.setHex(bHex), t);
 }
@@ -720,16 +929,31 @@ function updatePeriod(flowDist) {
   // scenery tints
   envMats.terrain.color.copy(lerpHex(a.terrain, b.terrain, t));
   cloudTint.copy(lerpHex(a.cloud, b.cloud, t));
-  envMats.spire.color.copy(cloudTint);
+  envMats.canopy.color.copy(cloudTint);
+  envMats.trunk.color.copy(cloudTint);
   for (const cl of skyClouds) cl.material.color.copy(cloudTint);
   for (const cl of mistClouds) cl.material.color.copy(cloudTint);
+  // mountain layers: zenith-tinted silhouettes dissolving into the fog color
+  for (let k = 0; k < mountainMats.length; k++) {
+    mountainMats[k].color.copy(skyMat.uniforms.zenith.value).lerp(scene.fog.color, 0.45 + k * 0.22);
+  }
   // celestial bodies
   horizonGlow.position.y = L(a.sunY, b.sunY);
   horizonGlow.material.color.copy(lerpHex(a.sunCol, b.sunCol, t));
   horizonGlow.material.opacity = L(a.sunO, b.sunO);
   moon.position.y = L(a.moonY, b.moonY);
   moon.material.opacity = L(a.moonO, b.moonO);
-  stars.material.opacity = L(a.starO, b.starO);
+  const starO = L(a.starO, b.starO);
+  stars.material.opacity = starO;
+  nightAmount = starO;
+  // crystal shimmer: two out-of-phase pulses with a slow drift between
+  // violet ↔ aqua and violet ↔ pink, so the glow feels alive, not uniform
+  const hueT = (Math.sin(elapsed * 0.4) + 1) / 2;
+  envMats.crystalA.emissive.copy(crysCol.setHex(0x8f7fff).lerp(crysCol2.setHex(0x6ee0d0), hueT));
+  envMats.crystalB.emissive.copy(crysCol.setHex(0x8f7fff).lerp(crysCol2.setHex(0xf59ad0), 1 - hueT));
+  envMats.crystalA.emissiveIntensity = starO * (1.1 + Math.sin(elapsed * 1.3) * 0.45);
+  envMats.crystalB.emissiveIntensity = starO * (1.1 + Math.sin(elapsed * 1.3 + 2.2) * 0.45);
+  for (const bl of balloons) bl.userData.mat.emissiveIntensity = starO * 0.5;
   laneGlow = L(a.lane, b.lane);
 }
 window.__setPhase = p => { timePhase = p; }; // debug: jump the time-of-day clock
@@ -1173,6 +1397,31 @@ function animate() {
   for (const cl of mistClouds) {
     cl.position.z += flow * dt * 0.85;
     if (cl.position.z > 18) cl.position.z -= 200;
+  }
+  // balloons drift lazily with gentle bobbing, far off to the sides
+  for (let i = 0; i < balloons.length; i++) {
+    const bl = balloons[i];
+    bl.position.z += flow * dt * 0.12;
+    bl.position.y = bl.userData.baseY + Math.sin(elapsed * 0.5 + i * 2.1) * 0.9;
+    if (bl.position.z > 20) bl.position.z -= 260;
+  }
+  // night magic: breathing aurora + twinkling firefly swarms, gone by day
+  for (let i = 0; i < auroras.length; i++) {
+    const au = auroras[i];
+    au.material.opacity = nightAmount * (0.28 + Math.sin(elapsed * 0.45 + i * 1.8) * 0.12);
+    au.rotation.z = au.userData.tilt + Math.sin(elapsed * 0.1 + i) * 0.025;
+  }
+  for (const swarm of fireflySwarms) {
+    const d = swarm.userData;
+    swarm.material.opacity = nightAmount * (0.25 + 0.75 * Math.max(0, Math.sin(elapsed * d.speed + d.phase)));
+    if (nightAmount > 0.01) {
+      const arr = swarm.geometry.attributes.position.array;
+      for (let k = 0; k < arr.length; k += 3) {
+        arr[k + 2] += flow * dt * 0.85;
+        if (arr[k + 2] > 14) arr[k + 2] -= 180;
+      }
+      swarm.geometry.attributes.position.needsUpdate = true;
+    }
   }
   // sparkles drift past with the world
   {
