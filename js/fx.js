@@ -90,6 +90,21 @@ export function spawnWallDebris(wallZ, holeY, wallHeight, colorHex) {
   }
 }
 
+// instantly remove all live particles and debris (used when a new run starts)
+export function clearFX() {
+  for (const b of bursts) {
+    scene.remove(b.points);
+    b.points.geometry.dispose();
+    b.points.material.dispose();
+  }
+  bursts.length = 0;
+  for (const d of debris) {
+    scene.remove(d.mesh);
+    d.mesh.geometry.dispose();
+  }
+  debris.length = 0;
+}
+
 export function updateFX(dt) {
   for (let i = bursts.length - 1; i >= 0; i--) {
     const b = bursts[i];

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { makePuzzle, applyOp, opValid, opLabel, isExotic, randStart, seededRandom } from './js/puzzle.js';
 import { loadFont, makeNumberGroup, NUMBER_SIZE } from './js/text3d.js';
 import { buildWall, setWallMatchGlow, disposeWall, WALL_HEIGHT, HOLE_Y, WALL_TINTS } from './js/wall.js';
-import { initFX, spawnBurst, spawnWallDebris, updateFX } from './js/fx.js';
+import { initFX, spawnBurst, spawnWallDebris, updateFX, clearFX } from './js/fx.js';
 import { ensureAudio, sfx, isMuted, setMuted } from './js/audio.js';
 import { EffectComposer } from './lib/postprocessing/EffectComposer.js';
 import { RenderPass } from './lib/postprocessing/RenderPass.js';
@@ -109,7 +109,9 @@ const skyMat = new THREE.ShaderMaterial({
   depthWrite: false,
   fog: false,
 });
-scene.add(new THREE.Mesh(new THREE.SphereGeometry(240, 24, 12), skyMat));
+const skyDome = new THREE.Mesh(new THREE.SphereGeometry(240, 24, 12), skyMat);
+skyDome.visible = false; // superseded by the full-screen sky layer
+scene.add(skyDome);
 
 // elevated ~45° chase camera: shows the track, the incoming wall, and the queue behind it
 const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 300);
@@ -118,8 +120,19 @@ camera.position.copy(camBase);
 camera.lookAt(0, 1.2, -13); // aim low: lifts the whole scene above the bottom UI
 
 // ----- Post-processing: soft bloom on glows -----------------------------------
+// Background renders as a separate full-screen layer first, then the world
+// draws on top of it (color preserved, depth cleared). This guarantees the
+// sky artwork covers every pixel at any aspect ratio.
+const bgScene = new THREE.Scene();
+const bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
 const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
+const bgPass = new RenderPass(bgScene, bgCamera);
+composer.addPass(bgPass);
+const mainPass = new RenderPass(scene, camera);
+mainPass.clear = false;
+mainPass.clearDepth = true;
+composer.addPass(mainPass);
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   0.55,  // strength — the reference is unapologetically bloomy
@@ -134,6 +147,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  periodTex.forEach(fitSkyTexture); // re-fit the sky cover for the new aspect
 });
 
 // ----- Lights: high-key, warm, soft -------------------------------------------
@@ -636,27 +650,46 @@ let laneGlow = 0;        // tile self-illumination, rises after dark for readabi
 
 const texLoader = new THREE.TextureLoader();
 const periodTex = PERIODS.map(p => {
-  const t = texLoader.load(p.img);
+  const t = texLoader.load(p.img, fitSkyTexture); // fit once loaded
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 });
 
-function makeBackdrop(z) {
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 225),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  m.material.fog = false;
-  m.material.toneMapped = false; // show the artwork's colors exactly as authored
-  m.position.set(0, -12, z);     // image's sun/moon sits near the lane's vanishing point
-  m.renderOrder = -10;
-  scene.add(m);
-  return m;
-}
 // the images carry their own mirrored ground, so the flat floor plane retires
 floor.visible = false;
-const backdropA = makeBackdrop(-239);   // current period
-const backdropB = makeBackdrop(-238.5); // next period, fades in on top
+
+// Screen-space sky layer: two full-screen quads (current period + next period
+// fading in) rendered by the background pass. Textures use CSS-style "cover"
+// fitting so every aspect ratio is fully covered — crop, never stretch or gap.
+const SKY_HORIZON = 0.74; // screen fraction (from bottom) where the artwork's horizon sits
+                          // — aligned with the lane's vanishing point
+
+function fitSkyTexture(tex) {
+  if (!tex.image) return;
+  const a = window.innerWidth / window.innerHeight;
+  const ia = tex.image.width / tex.image.height;
+  let rx, ry;
+  if (a >= ia) { rx = 1; ry = ia / a; } // wide screen: crop top/bottom
+  else { rx = a / ia; ry = 1; }         // tall screen: crop sides, keep sun centered
+  tex.repeat.set(rx, ry);
+  tex.offset.set(
+    (1 - rx) / 2,
+    THREE.MathUtils.clamp(0.5 - ry * SKY_HORIZON, 0, 1 - ry)
+  );
+}
+
+function makeSkyQuad() {
+  const m = new THREE.Mesh(
+    new THREE.PlaneGeometry(2, 2),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false })
+  );
+  m.material.toneMapped = false; // show the artwork's colors exactly as authored
+  bgScene.add(m);
+  return m;
+}
+const backdropA = makeSkyQuad(); // current period
+const backdropB = makeSkyQuad(); // next period, fades in on top
+backdropB.renderOrder = 1;       // guaranteed to draw over A
 
 const periodColA = new THREE.Color();
 const periodColB = new THREE.Color();
@@ -1035,6 +1068,9 @@ function startGame(mode) {
   game.timeLeft = TIME_ATTACK_SECONDS;
   game.power = { slow: 2, undo: 2, skip: 1 };
   game.slowTimer = 0;
+  timePhase = 0; // every run begins at Morning and lives a fresh day
+  clearFX();     // no leftover debris or particles from the previous run
+  floorFx.length = 0; // and no lingering floor ripples/cracks
   game.current = randStart(game.rng);
   setPlayerNumberVisual(game.current);
   cardPop = 0;
