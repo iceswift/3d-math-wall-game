@@ -73,13 +73,12 @@ scene.fog = new THREE.Fog(COL.sky, 72, 265);
 const pmrem = new THREE.PMREMGenerator(renderer);
 const envTex = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
 
-// ----- Gradient sky dome ------------------------------------------------------
+// ----- Procedural sky dome: zenith → mid → horizon, driven by time of day ------
 const skyMat = new THREE.ShaderMaterial({
   uniforms: {
-    topColor: { value: new THREE.Color(0x3f98e8) },
-    bottomColor: { value: new THREE.Color(0xcfeaff) },
-    offset: { value: 20 },
-    exponent: { value: 0.7 },
+    zenith: { value: new THREE.Color(0x4f92e0) },
+    mid: { value: new THREE.Color(0x9ec7ef) },
+    horizon: { value: new THREE.Color(0xffe2b8) },
   },
   vertexShader: `
     varying vec3 vWorldPosition;
@@ -89,20 +88,15 @@ const skyMat = new THREE.ShaderMaterial({
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }`,
   fragmentShader: `
-    uniform vec3 topColor;
-    uniform vec3 bottomColor;
-    uniform float offset;
-    uniform float exponent;
+    uniform vec3 zenith;
+    uniform vec3 mid;
+    uniform vec3 horizon;
     varying vec3 vWorldPosition;
     void main() {
-      vec3 viewDir = normalize(vWorldPosition + vec3(0.0, offset, 0.0));
-      float altitude = clamp(viewDir.y * 0.5 + 0.5, 0.0, 1.0);
-      // A three-stage blue gradient keeps the horizon luminous without a warm cast.
-      float blueFalloff = smoothstep(0.48, 0.96, altitude);
-      vec3 sky = mix(bottomColor, topColor, blueFalloff);
-      // A small pearly lift at the horizon gives the sky depth while staying minimalist.
-      float horizonHalo = exp(-pow((altitude - 0.53) / 0.075, 2.0)) * 0.16;
-      sky = mix(sky, vec3(0.985, 0.995, 1.0), horizonHalo);
+      float h = clamp(normalize(vWorldPosition).y, -1.0, 1.0);
+      vec3 sky = h > 0.22
+        ? mix(mid, zenith, smoothstep(0.22, 0.85, h))
+        : mix(horizon, mid, smoothstep(-0.02, 0.22, h));
       gl_FragColor = vec4(sky, 1.0);
     }`,
   side: THREE.BackSide,
@@ -110,7 +104,6 @@ const skyMat = new THREE.ShaderMaterial({
   fog: false,
 });
 const skyDome = new THREE.Mesh(new THREE.SphereGeometry(240, 24, 12), skyMat);
-skyDome.visible = false; // superseded by the full-screen sky layer
 scene.add(skyDome);
 
 // elevated ~45° chase camera: shows the track, the incoming wall, and the queue behind it
@@ -120,19 +113,8 @@ camera.position.copy(camBase);
 camera.lookAt(0, 1.2, -13); // aim low: lifts the whole scene above the bottom UI
 
 // ----- Post-processing: soft bloom on glows -----------------------------------
-// Background renders as a separate full-screen layer first, then the world
-// draws on top of it (color preserved, depth cleared). This guarantees the
-// sky artwork covers every pixel at any aspect ratio.
-const bgScene = new THREE.Scene();
-const bgCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-
 const composer = new EffectComposer(renderer);
-const bgPass = new RenderPass(bgScene, bgCamera);
-composer.addPass(bgPass);
-const mainPass = new RenderPass(scene, camera);
-mainPass.clear = false;
-mainPass.clearDepth = true;
-composer.addPass(mainPass);
+composer.addPass(new RenderPass(scene, camera));
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   0.55,  // strength — the reference is unapologetically bloomy
@@ -147,7 +129,6 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
-  periodTex.forEach(fitSkyTexture); // re-fit the sky cover for the new aspect
 });
 
 // ----- Lights: high-key, warm, soft -------------------------------------------
@@ -337,54 +318,65 @@ const curbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3
   }
 }
 
-// ----- Toy-city skyline: two treadmill tiles of instanced shapes ----------------
+// ----- Procedural landscape: rolling terrain + rock spires, treadmill tiles ------
+// Real 3D scenery far below the floating runway. The height function is
+// periodic over the tile length, so the two recycling tiles join seamlessly.
 const TILE_LEN = 120;
-function buildCityTile() {
+const envMats = {
+  terrain: new THREE.MeshStandardMaterial({ color: 0xaacfae, roughness: 1, flatShading: true }),
+  spire: new THREE.MeshStandardMaterial({ roughness: 0.7, flatShading: true }),
+};
+
+function terrainHeight(x, zz) { // zz ∈ [0, TILE_LEN), periodic in z
+  const t = (zz / TILE_LEN) * Math.PI * 2;
+  const sideMask = THREE.MathUtils.smoothstep(Math.abs(x), 14, 44); // flat corridor under the lane
+  return sideMask * (
+    Math.sin(t * 3 + x * 0.11) * 1.7 +
+    Math.sin(t * 5 + x * 0.045 + 2.1) * 1.2 +
+    (Math.sin(x * 0.09) + Math.sin(x * 0.041 + 1.3)) * 1.6
+  );
+}
+
+function buildEnvTile() {
   const g = new THREE.Group();
-  const col = new THREE.Color();
+
+  const geo = new THREE.PlaneGeometry(360, TILE_LEN, 72, 24);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const zz = ((pos.getZ(i) + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    pos.setY(i, terrainHeight(x, zz));
+  }
+  geo.computeVertexNormals();
+  const terrain = new THREE.Mesh(geo, envMats.terrain);
+  terrain.position.y = -6.5;
+  terrain.receiveShadow = true;
+  g.add(terrain);
+
+  // tapered spires standing on the hills
+  const spires = new THREE.InstancedMesh(new THREE.ConeGeometry(1, 1, 6), envMats.spire, 46);
   const m = new THREE.Matrix4();
-  const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(), e = new THREE.Euler();
-
-  // tall slim pastel monoliths rising out of the mist, reference-style
-  const boxMat = new THREE.MeshStandardMaterial({ roughness: 0.55 });
-  const boxes = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), boxMat, 220);
-  boxes.castShadow = true;
-  boxes.receiveShadow = true;
-  for (let i = 0; i < 220; i++) {
+  const col = new THREE.Color();
+  for (let i = 0; i < 46; i++) {
     const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (8.5 + Math.random() * 42);
-    const w = 0.9 + Math.random() * 2.0;
-    const h = 2 + Math.random() * 9.5;
-    const d = 0.9 + Math.random() * 2.0;
-    m.makeScale(w, h, d);
-    m.setPosition(x, -1.8 + h / 2, -Math.random() * TILE_LEN);
-    boxes.setMatrixAt(i, m);
-    boxes.setColorAt(i, col.setHex(COL.city[i % COL.city.length]));
+    const x = side * (20 + Math.random() * 58);
+    const zLocal = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = (zLocal + TILE_LEN / 2) % TILE_LEN;
+    const r = 1.6 + Math.random() * 3.4;
+    const h = 7 + Math.random() * 16;
+    m.makeScale(r, h, r);
+    m.setPosition(x, -6.5 + terrainHeight(x, zz) + h / 2 - 0.6, zLocal);
+    spires.setMatrixAt(i, m);
+    spires.setColorAt(i, col.setHex(COL.city[i % COL.city.length]));
   }
-  g.add(boxes);
-
-  const torMat = new THREE.MeshStandardMaterial({ roughness: 0.5 });
-  const tori = new THREE.InstancedMesh(new THREE.TorusGeometry(1, 0.4, 10, 20), torMat, 12);
-  tori.castShadow = true;
-  for (let i = 0; i < 12; i++) {
-    const side = i % 2 === 0 ? 1 : -1;
-    p.set(side * (10 + Math.random() * 38), 1 + Math.random() * 5, -Math.random() * TILE_LEN);
-    q.setFromEuler(e.set(Math.random() * 3, Math.random() * 3, Math.random() * 3));
-    s.setScalar(0.8 + Math.random() * 0.9);
-    m.compose(p, q, s);
-    tori.setMatrixAt(i, m);
-    tori.setColorAt(i, col.setHex(COL.city[(i + 3) % COL.city.length]));
-  }
-  g.add(tori);
-
+  g.add(spires);
   return g;
 }
-const cityTiles = [buildCityTile(), buildCityTile()];
+const cityTiles = [buildEnvTile(), buildEnvTile()];
 cityTiles[0].position.z = 0;
 cityTiles[1].position.z = -TILE_LEN;
 scene.add(cityTiles[0], cityTiles[1]);
-// The background stays intentionally quiet so arithmetic decisions own the frame.
-cityTiles.forEach(tile => { tile.visible = false; });
 
 // ----- Floating decorations (drift above the city) ------------------------------
 const decos = [];
@@ -451,12 +443,53 @@ const horizonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
   blending: THREE.AdditiveBlending,
 }));
 horizonGlow.material.fog = false;
-horizonGlow.material.opacity = 0.65;
-horizonGlow.material.color.setHex(0xfff0dc);
-horizonGlow.position.set(0, 5, -235);
-horizonGlow.scale.set(105, 55, 1);
-scene.add(horizonGlow);
-horizonGlow.visible = false;
+horizonGlow.material.opacity = 0.85;
+horizonGlow.material.color.setHex(0xffca8f);
+horizonGlow.position.set(0, 7, -228);
+horizonGlow.scale.set(85, 55, 1);
+scene.add(horizonGlow); // the sun: arcs, tints, and fades with the time of day
+
+// the moon rises off-center as the sun sets
+const moon = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: makeGlowTexture(128),
+  transparent: true,
+  opacity: 0,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+}));
+moon.material.fog = false;
+moon.material.color.setHex(0xdfe8ff);
+moon.position.set(26, 24, -226);
+moon.scale.set(22, 22, 1);
+scene.add(moon);
+
+// star field on the upper dome, fading in through twilight
+const stars = (() => {
+  const n = 260;
+  const posArr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const az = Math.random() * Math.PI * 2;
+    const el = (0.06 + Math.random() * 0.82) * Math.PI / 2;
+    const r = 226;
+    posArr[i * 3] = r * Math.cos(el) * Math.sin(az);
+    posArr[i * 3 + 1] = r * Math.sin(el);
+    posArr[i * 3 + 2] = -r * Math.cos(el) * Math.cos(az);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 1.6,
+    sizeAttenuation: false,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
+  mat.fog = false;
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+  return pts;
+})();
 
 const cloudTex = makeCloudTexture();
 const skyClouds = [];
@@ -471,19 +504,17 @@ for (let i = 0; i < 12; i++) {
   sp.material.color.setHex(i % 3 === 0 ? 0xffe8d7 : 0xffffff);
   skyClouds.push(sp);
 }
-// low mist the columns rise out of
+// low cloud sea drifting over the terrain, between the spires
 for (let i = 0; i < 10; i++) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, opacity: 0.3 + Math.random() * 0.2, depthWrite: false }));
   const side = i % 2 === 0 ? 1 : -1;
-  sp.position.set(side * (9 + Math.random() * 32), 0.6 + Math.random() * 1.6, -Math.random() * 180);
+  sp.position.set(side * (12 + Math.random() * 34), -3 + Math.random() * 2.4, -Math.random() * 180);
   const s = 14 + Math.random() * 16;
   sp.scale.set(s, s * 0.4, 1);
   scene.add(sp);
   sp.material.color.setHex(0xdcecff);
   mistClouds.push(sp);
 }
-skyClouds.forEach(cloud => { cloud.visible = false; });
-mistClouds.forEach(cloud => { cloud.visible = false; });
 
 // glossy sun reflection streak down the middle of the lane
 const streak = new THREE.Mesh(
@@ -634,65 +665,37 @@ const game = {
 window.__game = game; // debug handle
 
 // ----- Time-of-day cycle: Morning → Day → Sunset → Twilight → Night, forever ----
-// The backdrop is a pair of crossfading full-sky images; lighting, fog, floor
-// tint, and a night-time lane glow interpolate in sync. The phase advances
-// with distance travelled, so the sky doubles as a progress clock.
+// One keyframe table drives the whole procedural world: sky-dome stops, the
+// sun's height/color, moon and stars, cloud and terrain tints, fog, lighting,
+// and the night-time lane glow. Phase advances with distance travelled, so
+// the sky doubles as a progress clock.
 const PERIODS = [
-  { name: 'Morning',  img: 'assets/sky/Morning.png',  top: 0x6fa8e8, horizon: 0xffeed6, fog: 0xf2e6d2, ground: 0xfdf8f0, sun: 0xffd9a8, sunI: 1.25, hemiI: 1.0,  lane: 0 },
-  { name: 'Day',      img: 'assets/sky/Day.png',      top: 0x3d84e0, horizon: 0xdff0fc, fog: 0xe6f0f8, ground: 0xffffff, sun: 0xfff2dd, sunI: 1.45, hemiI: 1.1,  lane: 0 },
-  { name: 'Sunset',   img: 'assets/sky/Sunset.png',   top: 0x7a5fae, horizon: 0xff9a55, fog: 0xf0a878, ground: 0xf8e8da, sun: 0xff9a5c, sunI: 1.3,  hemiI: 0.85, lane: 0.02 },
-  { name: 'Twilight', img: 'assets/sky/Twilight.png', top: 0x40447e, horizon: 0xb59fd8, fog: 0x9c92c4, ground: 0xdcd8ea, sun: 0xa48fdc, sunI: 0.95, hemiI: 0.7,  lane: 0.05 },
-  { name: 'Night',    img: 'assets/sky/Night.png',    top: 0x11173a, horizon: 0x39406e, fog: 0x3e4677, ground: 0xa2abcd, sun: 0x93a7ff, sunI: 0.7,  hemiI: 0.55, lane: 0.09 },
+  { name: 'Morning',  zenith: 0x4f92e0, mid: 0x9ec7ef, horizon: 0xffe2b8, fog: 0xf2e0c8, terrain: 0xaacfae, cloud: 0xfff0dc,
+    sun: 0xffd9a8, sunI: 1.2,  hemiI: 1.0,  lane: 0,
+    sunY: 7,   sunCol: 0xffca8f, sunO: 0.85, moonY: 8,  moonO: 0, starO: 0 },
+  { name: 'Day',      zenith: 0x2c6fd1, mid: 0x6fb0ea, horizon: 0xd8eefb, fog: 0xdceaf6, terrain: 0x9ccf9f, cloud: 0xffffff,
+    sun: 0xfff2dd, sunI: 1.4,  hemiI: 1.1,  lane: 0,
+    sunY: 34,  sunCol: 0xfff4da, sunO: 0.7,  moonY: 8,  moonO: 0, starO: 0 },
+  { name: 'Sunset',   zenith: 0x5b4a9e, mid: 0xb96e93, horizon: 0xff9b4a, fog: 0xeda06b, terrain: 0x9c8f7e, cloud: 0xffc7a0,
+    sun: 0xff9a5c, sunI: 1.25, hemiI: 0.85, lane: 0.02,
+    sunY: 5.5, sunCol: 0xff8f3d, sunO: 1.0,  moonY: 10, moonO: 0, starO: 0.12 },
+  { name: 'Twilight', zenith: 0x222a58, mid: 0x45487f, horizon: 0xa88bc0, fog: 0x9187b4, terrain: 0x5c6187, cloud: 0x9089b8,
+    sun: 0xa48fdc, sunI: 0.9,  hemiI: 0.7,  lane: 0.05,
+    sunY: -6,  sunCol: 0xc887b8, sunO: 0.35, moonY: 14, moonO: 0.55, starO: 0.7 },
+  { name: 'Night',    zenith: 0x080d24, mid: 0x171f44, horizon: 0x2e3763, fog: 0x333b64, terrain: 0x353c63, cloud: 0x3f4a78,
+    sun: 0x93a7ff, sunI: 0.65, hemiI: 0.55, lane: 0.09,
+    sunY: -20, sunCol: 0x93a7ff, sunO: 0,    moonY: 30, moonO: 1, starO: 1 },
 ];
 const PERIOD_DIST = 340; // world units of travel per period (~20s at cruise speed)
 let timePhase = 0;       // 0..5, wraps forever
 let laneGlow = 0;        // tile self-illumination, rises after dark for readability
 
-const texLoader = new THREE.TextureLoader();
-const periodTex = PERIODS.map(p => {
-  const t = texLoader.load(p.img, fitSkyTexture); // fit once loaded
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-});
-
-// the images carry their own mirrored ground, so the flat floor plane retires
+// the terrain is the ground now; the flat floor plane stays retired
 floor.visible = false;
-
-// Screen-space sky layer: two full-screen quads (current period + next period
-// fading in) rendered by the background pass. Textures use CSS-style "cover"
-// fitting so every aspect ratio is fully covered — crop, never stretch or gap.
-const SKY_HORIZON = 0.74; // screen fraction (from bottom) where the artwork's horizon sits
-                          // — aligned with the lane's vanishing point
-
-function fitSkyTexture(tex) {
-  if (!tex.image) return;
-  const a = window.innerWidth / window.innerHeight;
-  const ia = tex.image.width / tex.image.height;
-  let rx, ry;
-  if (a >= ia) { rx = 1; ry = ia / a; } // wide screen: crop top/bottom
-  else { rx = a / ia; ry = 1; }         // tall screen: crop sides, keep sun centered
-  tex.repeat.set(rx, ry);
-  tex.offset.set(
-    (1 - rx) / 2,
-    THREE.MathUtils.clamp(0.5 - ry * SKY_HORIZON, 0, 1 - ry)
-  );
-}
-
-function makeSkyQuad() {
-  const m = new THREE.Mesh(
-    new THREE.PlaneGeometry(2, 2),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false })
-  );
-  m.material.toneMapped = false; // show the artwork's colors exactly as authored
-  bgScene.add(m);
-  return m;
-}
-const backdropA = makeSkyQuad(); // current period
-const backdropB = makeSkyQuad(); // next period, fades in on top
-backdropB.renderOrder = 1;       // guaranteed to draw over A
 
 const periodColA = new THREE.Color();
 const periodColB = new THREE.Color();
+const cloudTint = new THREE.Color();
 function lerpHex(aHex, bHex, t) {
   return periodColA.setHex(aHex).lerp(periodColB.setHex(bHex), t);
 }
@@ -703,20 +706,31 @@ function updatePeriod(flowDist) {
   const j = (i + 1) % PERIODS.length;
   const t = THREE.MathUtils.smoothstep(timePhase - i, 0.72, 1); // hold, then blend into next
   const a = PERIODS[i], b = PERIODS[j];
+  const L = (ka, kb) => THREE.MathUtils.lerp(ka, kb, t);
 
-  if (backdropA.material.map !== periodTex[i]) { backdropA.material.map = periodTex[i]; backdropA.material.needsUpdate = true; }
-  if (backdropB.material.map !== periodTex[j]) { backdropB.material.map = periodTex[j]; backdropB.material.needsUpdate = true; }
-  backdropA.material.opacity = periodTex[i].image ? 1 : 0; // hidden until loaded
-  backdropB.material.opacity = periodTex[j].image ? t : 0;
-
+  // sky dome
+  skyMat.uniforms.zenith.value.copy(lerpHex(a.zenith, b.zenith, t));
+  skyMat.uniforms.mid.value.copy(lerpHex(a.mid, b.mid, t));
+  skyMat.uniforms.horizon.value.copy(lerpHex(a.horizon, b.horizon, t));
+  // lighting — the scenery itself is lit by the time of day
   sun.color.copy(lerpHex(a.sun, b.sun, t));
-  sun.intensity = THREE.MathUtils.lerp(a.sunI, b.sunI, t);
-  ambientLight.intensity = THREE.MathUtils.lerp(a.hemiI, b.hemiI, t);
+  sun.intensity = L(a.sunI, b.sunI);
+  ambientLight.intensity = L(a.hemiI, b.hemiI);
   scene.fog.color.copy(lerpHex(a.fog, b.fog, t));
-  floorMat.color.copy(lerpHex(a.ground, b.ground, t));
-  skyMat.uniforms.topColor.value.copy(lerpHex(a.top, b.top, t));
-  skyMat.uniforms.bottomColor.value.copy(lerpHex(a.horizon, b.horizon, t));
-  laneGlow = THREE.MathUtils.lerp(a.lane, b.lane, t);
+  // scenery tints
+  envMats.terrain.color.copy(lerpHex(a.terrain, b.terrain, t));
+  cloudTint.copy(lerpHex(a.cloud, b.cloud, t));
+  envMats.spire.color.copy(cloudTint);
+  for (const cl of skyClouds) cl.material.color.copy(cloudTint);
+  for (const cl of mistClouds) cl.material.color.copy(cloudTint);
+  // celestial bodies
+  horizonGlow.position.y = L(a.sunY, b.sunY);
+  horizonGlow.material.color.copy(lerpHex(a.sunCol, b.sunCol, t));
+  horizonGlow.material.opacity = L(a.sunO, b.sunO);
+  moon.position.y = L(a.moonY, b.moonY);
+  moon.material.opacity = L(a.moonO, b.moonO);
+  stars.material.opacity = L(a.starO, b.starO);
+  laneGlow = L(a.lane, b.lane);
 }
 window.__setPhase = p => { timePhase = p; }; // debug: jump the time-of-day clock
 
