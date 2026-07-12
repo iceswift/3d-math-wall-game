@@ -37,5 +37,10 @@ export const sfx = {
   boss: () => { tone(110, 0.5, 'sawtooth', 0.14); tone(165, 0.5, 'sawtooth', 0.1, 0.05); },
   tick: () => tone(1200, 0.04, 'square', 0.05),
   slow: () => { tone(300, 0.35, 'sine', 0.14); tone(150, 0.5, 'sine', 0.1, 0.1); },
+  // cartoon dizzy warble: alternating falling tones, like a wobbling head
+  dizzy: () => {
+    const seq = [392, 330, 370, 311, 349, 294];
+    seq.forEach((f, i) => tone(f, 0.09, 'triangle', 0.12, 0.08 + i * 0.085));
+  },
   skip: () => { tone(520, 0.12, 'sawtooth', 0.12); tone(260, 0.22, 'sawtooth', 0.1, 0.08); },
 };

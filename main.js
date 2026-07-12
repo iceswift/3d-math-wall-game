@@ -792,6 +792,30 @@ scene.add(blob);
 player.position.set(0, PLAYER_Y, PLAYER_Z);
 scene.add(player);
 
+// cartoon dizzy stars: orbit the number's head after a crash
+const dizzyStars = new THREE.Group();
+{
+  const starShape = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? 0.34 : 0.14;
+    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+    if (i === 0) starShape.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+    else starShape.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  starShape.closePath();
+  const starGeo = new THREE.ShapeGeometry(starShape);
+  const starMat = new THREE.MeshBasicMaterial({ color: 0xffd94f, side: THREE.DoubleSide, transparent: true });
+  starMat.toneMapped = false;
+  starMat.fog = false;
+  for (let i = 0; i < 5; i++) {
+    const star = new THREE.Mesh(starGeo, starMat);
+    star.userData.offset = (i / 5) * Math.PI * 2;
+    dizzyStars.add(star);
+  }
+}
+dizzyStars.visible = false;
+scene.add(dizzyStars);
+
 let cardPop = 0; // pop animation timer
 
 function setPlayerNumberVisual(n) {
@@ -865,6 +889,7 @@ const game = {
   shake: 0,
   lunge: 0,
   knock: 0,
+  dizzy: 0, // stunned wobble + orbiting stars after a crash
   paused: false,
   power: { slow: 2, undo: 2, skip: 1 },
   slowTimer: 0,
@@ -1265,7 +1290,9 @@ function onWallReached() {
     // ---- CRASH ----
     game.combo = 0;
     game.knock = 1; // the number bounces off the wall
+    game.dizzy = 1; // ...then wobbles around seeing stars, cartoon-style
     sfx.fail();
+    sfx.dizzy();
     floorCrack();
     flashScreen('#ff5a76', 0.45);
     spawnBurst(player.position.clone(), COL.bad, 90, 13);
@@ -1288,7 +1315,7 @@ function onWallReached() {
       if (game.lives <= 0) { updateHUD(); endGame('crash'); return; }
     }
     game.state = 'between';
-    game.betweenTimer = 1.4;
+    game.betweenTimer = 2.0; // hold the stunned beat so the dizzy show plays out
     updateHUD();
   }
 }
@@ -1307,6 +1334,9 @@ function startGame(mode) {
   game.power = { slow: 2, undo: 2, skip: 1 };
   game.slowTimer = 0;
   timePhase = 0; // every run begins at Morning and lives a fresh day
+  game.dizzy = 0;
+  game.knock = 0;
+  game.lunge = 0;
   clearFX();     // no leftover debris or particles from the previous run
   floorFx.length = 0; // and no lingering floor ripples/cracks
   game.current = randStart(game.rng);
@@ -1456,8 +1486,31 @@ function animate() {
   if (game.knock > 0) {
     game.knock = Math.max(0, game.knock - dt * 1.1);
     const p = 1 - game.knock;
-    zOff = Math.sin(Math.min(p * 1.4, 1) * Math.PI) * 3.4; // thrown backward, then recover
-    xTumble = -Math.sin(p * Math.PI) * 1.1;                 // painful backflip
+    zOff = Math.sin(Math.min(p * 1.4, 1) * Math.PI) * 3.4;  // thrown backward, then recover
+    const spinEase = 1 - Math.pow(1 - Math.min(p * 1.15, 1), 3);
+    ySpin = spinEase * Math.PI * 6;                          // three wild spins off the impact
+    xTumble = -Math.sin(p * Math.PI) * 0.5;
+  }
+  // stunned wobble: drunken sway while little stars circle the head
+  let wobbleZ = 0;
+  if (game.dizzy > 0) {
+    game.dizzy = Math.max(0, game.dizzy - dt * 0.42); // ~2.4s stunned
+    const d = game.dizzy;
+    wobbleZ = Math.sin(elapsed * 9) * 0.38 * d;
+    xTumble += Math.sin(elapsed * 7.3) * 0.16 * d;
+    dizzyStars.visible = true;
+    dizzyStars.position.set(player.position.x, player.position.y + 1.7, player.position.z);
+    const fade = Math.min(d * 3, 1);
+    dizzyStars.children[0].material.opacity = fade;
+    for (let i = 0; i < dizzyStars.children.length; i++) {
+      const st = dizzyStars.children[i];
+      const a = elapsed * 5.5 + st.userData.offset;
+      st.position.set(Math.cos(a) * 2.1, Math.sin(a * 2) * 0.15, Math.sin(a) * 0.95);
+      st.rotation.z = elapsed * 4 + i;
+      st.scale.setScalar(fade * (0.85 + Math.sin(a * 3) * 0.2));
+    }
+  } else if (dizzyStars.visible) {
+    dizzyStars.visible = false;
   }
   // bob and sway settle to zero while a wall is near, so the number lines up
   // with the cutout and threads it dead-center
@@ -1465,7 +1518,7 @@ function animate() {
   settle += (settleTarget - settle) * Math.min(dt * 6, 1);
   player.position.y = PLAYER_Y + Math.sin(elapsed * 2.2) * 0.15 * settle;
   player.position.z = PLAYER_Z + zOff;
-  player.rotation.set(xTumble, ySpin, Math.sin(elapsed * 1.6) * 0.05 * settle);
+  player.rotation.set(xTumble, ySpin, Math.sin(elapsed * 1.6) * 0.05 * settle + wobbleZ);
   blob.position.set(player.position.x, 0.02, player.position.z);
   blob.scale.setScalar(1 - Math.sin(elapsed * 2.2) * 0.08);
   if (cardPop > 0) {
