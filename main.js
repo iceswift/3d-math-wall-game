@@ -180,58 +180,33 @@ skyFill.intensity = 0.46;
 // you're safe or pulses red inside the PERFECT window.
 const TRACK_TILE_LEN = 4;
 const TRACK_TILE_COUNT = 52;
-// square grout grid drawn onto each tile strip, so the lane reads as glossy
-// white porcelain tiles like the reference
-function makeGroutTexture() {
-  const c = document.createElement('canvas');
-  c.width = 256; c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 256, 256);
-  g.strokeStyle = '#e4e8f1';
-  g.lineWidth = 7;
-  g.strokeRect(3, 3, 250, 250);
-  for (const x of [85, 171]) {
-    g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 256); g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
+// Calm floor: a near-uniform matte surface. The only permanent markings are
+// two thin edge strips whose lit segments join into one continuous fuse line
+// while a wall approaches — all other floor light is transient (ripples,
+// press flashes, crash cracks).
 const trackTiles = [];
 const trackGroup = new THREE.Group();
 {
-  const groutTex = makeGroutTexture();
   const tileGeo = new THREE.BoxGeometry(12.6, 0.14, TRACK_TILE_LEN - 0.35);
-  const tickGeoShort = new THREE.BoxGeometry(0.45, 0.08, 0.2);
-  const tickGeoLong = new THREE.BoxGeometry(1.0, 0.08, 0.26);
+  const stripGeo = new THREE.BoxGeometry(0.18, 0.07, TRACK_TILE_LEN - 0.35);
   for (let i = 0; i < TRACK_TILE_COUNT; i++) {
     const mat = new THREE.MeshStandardMaterial({
-      color: i % 2 ? 0xeef1f7 : 0xf6f8fc,
-      roughness: 0.34,
-      map: groutTex,
+      color: i % 2 ? 0xf1f3f9 : 0xf4f6fb, // barely-there alternation keeps forward motion readable
+      roughness: 0.54,
       envMap: envTex,
-      envMapIntensity: 0.3,
+      envMapIntensity: 0.08,
     });
     const tile = new THREE.Mesh(tileGeo, mat);
     const baseZ = 16 - i * TRACK_TILE_LEN;
     tile.position.set(0, 0.03, baseZ);
     tile.receiveShadow = true;
-    tile.material.roughness = 0.27;
-    tile.material.metalness = 0.035;
-    tile.material.envMapIntensity = 0.42;
-    tile.material.roughness = 0.54;
-    tile.material.metalness = 0;
-    tile.material.envMapIntensity = 0.08;
     trackGroup.add(tile);
-    const tickMat = new THREE.MeshStandardMaterial({ color: 0xb9c3d8, emissive: 0x000000 });
-    const tickGeo = i % 5 === 0 ? tickGeoLong : tickGeoShort; // long tick every 5, like a ruler
-    const leftTick = new THREE.Mesh(tickGeo, tickMat);
-    leftTick.position.set(-5.6, 0.14, baseZ);
-    const rightTick = new THREE.Mesh(tickGeo, tickMat);
-    rightTick.position.set(5.6, 0.14, baseZ);
-    trackGroup.add(leftTick, rightTick);
+    const tickMat = new THREE.MeshStandardMaterial({ color: 0xe0e6f0, emissive: 0x000000 });
+    const leftStrip = new THREE.Mesh(stripGeo, tickMat);
+    leftStrip.position.set(-5.95, 0.12, baseZ);
+    const rightStrip = new THREE.Mesh(stripGeo, tickMat);
+    rightStrip.position.set(5.95, 0.12, baseZ);
+    trackGroup.add(leftStrip, rightStrip);
     trackTiles.push({ mat, tickMat, baseZ });
   }
   scene.add(trackGroup);
@@ -258,8 +233,7 @@ function updateFloor(dt, flow) {
   const inPerfectWindow = wall ? (PLAYER_Z - wall.z) / game.spawnDist <= PERFECT_WINDOW : false;
   for (const t of trackTiles) {
     const z = t.baseZ + trackScroll;
-    // faint shimmer travelling down the lane keeps the floor alive
-    const sh = Math.max(0, Math.sin(z * 0.22 + elapsed * 2.2)) * 0.035;
+    const sh = 0; // shimmer retired — the calm surface lets the number own the frame
     // laneGlow: warm self-illumination after dark, so the runway reads as a lit path
     let r = sh + laneGlow, g = sh + laneGlow * 0.92, b = sh * 1.2 + laneGlow * 0.75;
     for (const fx of floorFx) {
@@ -279,11 +253,11 @@ function updateFloor(dt, flow) {
     if (wallZ !== null && z > wallZ && z < PLAYER_Z + 2) {
       tickColorScratch.setHex(matched ? 0x3ecf8e : inPerfectWindow ? 0xff5a76 : 0xffb14f);
       const pulse = inPerfectWindow && !matched ? 0.75 + Math.sin(elapsed * 10) * 0.35 : 1;
-      t.tickMat.emissive.copy(tickColorScratch).multiplyScalar(1.1 * pulse);
+      t.tickMat.emissive.copy(tickColorScratch).multiplyScalar(1.35 * pulse);
       t.tickMat.color.setHex(0xffffff);
     } else {
       t.tickMat.emissive.setRGB(0, 0, 0);
-      t.tickMat.color.setHex(0xb9c3d8);
+      t.tickMat.color.setHex(0xe0e6f0); // unlit strips nearly vanish into the floor
     }
   }
 }
@@ -298,12 +272,15 @@ trackBody.material.roughness = 0.78;
 scene.add(trackBody);
 
 // city floor far below the runway — tinted by the wave theme
-const floorMat = new THREE.MeshStandardMaterial({ color: 0xf2f5fa, roughness: 1 });
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(320, 520), floorMat);
+// ground skirt: a vast plane just beneath the displaced terrain, tinted to a
+// fog-blended meadow color each frame — the world never shows a "missing
+// ground" band at the terrain tiles' far edge or sides
+const floorMat = new THREE.MeshStandardMaterial({ color: 0xa8cbaa, roughness: 1 });
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), floorMat);
 floor.rotation.x = -Math.PI / 2;
-floor.position.set(0, -1.8, -180);
-floor.material.color.setHex(0xe9f0fa);
-floor.material.roughness = 0.86;
+// below the terrain's deepest possible valley (base -6.5 minus ~6 of relief),
+// so the skirt never slices through a dip and reads as a pond
+floor.position.set(0, -13, -180);
 floor.receiveShadow = true;
 scene.add(floor);
 
@@ -323,7 +300,10 @@ const curbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3
 // periodic over the tile length, so the two recycling tiles join seamlessly.
 const TILE_LEN = 120;
 const envMats = {
-  terrain: new THREE.MeshStandardMaterial({ color: 0xaacfae, roughness: 1, flatShading: true }),
+  terrain: new THREE.MeshStandardMaterial({ color: 0xaacfae, roughness: 1, flatShading: true, vertexColors: true }),
+  tuft: new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }),
+  flower: new THREE.MeshStandardMaterial({ roughness: 0.7 }),
+  rock: new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }),
   trunk: new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }),
   canopy: new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }),
   // two crystal materials pulsing out of phase, so the glow shimmers across
@@ -348,6 +328,72 @@ function terrainHeight(x, zz) { // zz ∈ [0, TILE_LEN), periodic in z
   );
 }
 
+// ----- Wildlife: subtle background animals that come and go with the day --------
+// Every species' opacity is driven by a per-period weight, so each time of day
+// has its own inhabitants. All of them live outside the lane corridor.
+const wildlifeMats = {
+  bird: new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.8, transparent: true, opacity: 0 }),
+  deer: new THREE.MeshStandardMaterial({ color: 0x9c7a5b, roughness: 0.9, transparent: true, opacity: 0 }),
+  deerDark: new THREE.MeshStandardMaterial({ color: 0x74573f, roughness: 0.9, transparent: true, opacity: 0 }),
+  fox: new THREE.MeshStandardMaterial({ color: 0xd97a3e, roughness: 0.85, transparent: true, opacity: 0 }),
+  crystalDeer: new THREE.MeshStandardMaterial({
+    color: 0xbfe2ff, roughness: 0.3, flatShading: true,
+    emissive: 0x8fd0ff, emissiveIntensity: 0,
+    transparent: true, opacity: 0,
+  }),
+};
+const wildlife = []; // { type, group, head?, tail?, phase }
+const wildlifeWeights = { bird: 0, deer: 0, fox: 0, cdeer: 0 };
+
+function buildDeer(bodyMat, darkMat, scale, antlerLen) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.85, 0.7), bodyMat);
+  body.position.y = 1.05;
+  const frontLegs = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.05, 0.55), darkMat);
+  frontLegs.position.set(0.55, 0.52, 0);
+  const backLegs = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.05, 0.55), darkMat);
+  backLegs.position.set(-0.55, 0.52, 0);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.75, 0.3), bodyMat);
+  neck.position.set(0.68, 1.75, 0);
+  const head = new THREE.Group();
+  head.position.set(0.72, 2.15, 0);
+  const skull = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.38, 0.4), bodyMat);
+  skull.position.x = 0.12;
+  head.add(skull);
+  for (const side of [-1, 1]) {
+    const antler = new THREE.Mesh(new THREE.BoxGeometry(0.07, antlerLen, 0.07), darkMat);
+    antler.position.set(-0.05, antlerLen / 2 + 0.15, side * 0.16);
+    antler.rotation.z = -0.35;
+    antler.rotation.x = side * 0.3;
+    head.add(antler);
+  }
+  g.add(body, frontLegs, backLegs, neck, head);
+  g.scale.setScalar(scale);
+  return { group: g, head };
+}
+
+function buildFox(scale) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.45, 0.4), wildlifeMats.fox);
+  body.position.y = 0.5;
+  const legs = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 0.32), wildlifeMats.deerDark);
+  legs.position.y = 0.2;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.34, 0.34), wildlifeMats.fox);
+  head.position.set(0.6, 0.72, 0);
+  const earL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.06), wildlifeMats.fox);
+  earL.position.set(0.62, 0.98, 0.1);
+  const earR = earL.clone();
+  earR.position.z = -0.1;
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.22, 0.22), wildlifeMats.fox);
+  tail.geometry = tail.geometry.clone();
+  tail.geometry.translate(-0.37, 0, 0); // swing from the base
+  tail.position.set(-0.45, 0.55, 0);
+  tail.rotation.z = 0.35;
+  g.add(body, legs, head, earL, earR, tail);
+  g.scale.setScalar(scale);
+  return { group: g, tail };
+}
+
 function buildEnvTile() {
   const g = new THREE.Group();
 
@@ -360,6 +406,23 @@ function buildEnvTile() {
     pos.setY(i, terrainHeight(x, zz));
   }
   geo.computeVertexNormals();
+  // hand-painted meadow: valleys richer and cooler, hilltops lighter and
+  // sun-dried, with soft irregular patches — a multiplier under the period
+  // tint, so the variation survives sunset gold and night navy
+  {
+    const colors = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const zz = ((pos.getZ(i) + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+      const hn = THREE.MathUtils.clamp((pos.getY(i) + 4.5) / 9, 0, 1);
+      const patch = 0.5 + 0.5 * Math.sin(x * 0.35 + Math.sin(zz * 0.21) * 2.0) * Math.sin(zz * 0.17 + x * 0.05);
+      const k = THREE.MathUtils.clamp(hn * 0.65 + patch * 0.35, 0, 1);
+      colors[i * 3] = THREE.MathUtils.lerp(0.82, 1.08, k);     // r: dried tops warm up
+      colors[i * 3 + 1] = THREE.MathUtils.lerp(0.94, 1.02, k); // g: stays lush
+      colors[i * 3 + 2] = THREE.MathUtils.lerp(0.9, 0.78, k);  // b: valleys cooler
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  }
   const terrain = new THREE.Mesh(geo, envMats.terrain);
   terrain.position.y = -6.5;
   terrain.receiveShadow = true;
@@ -436,6 +499,76 @@ function buildEnvTile() {
     mesh.setColorAt(idx, col.setHex(gemShades[i % gemShades.length]));
   }
   g.add(crystalsA, crystalsB);
+
+  // wildlife on the hills: grazing deer (morning/day), foxes (sunset),
+  // and one glowing crystal reindeer that only exists at night
+  const placeAnimal = (built, type, minX, spanX) => {
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const x = side * (minX + Math.random() * spanX);
+    const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    built.group.position.set(x, -6.5 + terrainHeight(x, zz), zL);
+    built.group.rotation.y = Math.random() * Math.PI * 2;
+    g.add(built.group);
+    wildlife.push({ type, ...built, phase: Math.random() * 6 });
+  };
+  for (let i = 0; i < 2; i++) {
+    placeAnimal(buildDeer(wildlifeMats.deer, wildlifeMats.deerDark, 1.1 + Math.random() * 0.4, 0.5), 'deer', 19, 20);
+    placeAnimal(buildFox(1.0 + Math.random() * 0.3), 'fox', 18, 16);
+  }
+  placeAnimal(buildDeer(wildlifeMats.crystalDeer, wildlifeMats.crystalDeer, 1.6, 0.85), 'cdeer', 18, 14);
+
+  // grass tufts: dense near the track edges where the eye rests, thinning out
+  const TUFTS = 220;
+  const tufts = new THREE.InstancedMesh(new THREE.ConeGeometry(0.09, 0.6, 4), envMats.tuft, TUFTS);
+  const tuftShades = [0x9fd3a0, 0x8cc490, 0xb2dfa8, 0x86b784];
+  for (let i = 0; i < TUFTS; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side * (7.5 + Math.pow(Math.random(), 1.7) * 30);
+    const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    const s = 0.7 + Math.random() * 0.9;
+    m.makeScale(s, s * (0.8 + Math.random() * 0.8), s);
+    m.setPosition(x, -6.5 + terrainHeight(x, zz) + 0.24 * s, zL);
+    tufts.setMatrixAt(i, m);
+    tufts.setColorAt(i, col.setHex(tuftShades[i % tuftShades.length]));
+  }
+  g.add(tufts);
+
+  // meadow flowers: sparse dots of color through the grass band
+  const FLOWERS = 60;
+  const flowers = new THREE.InstancedMesh(new THREE.SphereGeometry(0.09, 6, 5), envMats.flower, FLOWERS);
+  const petalShades = [0xfff6f8, 0xffd9e8, 0xfff3b8, 0xe8d9ff];
+  for (let i = 0; i < FLOWERS; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side * (8 + Math.random() * 32);
+    const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    const s = 0.7 + Math.random() * 0.8;
+    m.makeScale(s, s, s);
+    m.setPosition(x, -6.5 + terrainHeight(x, zz) + 0.12, zL);
+    flowers.setMatrixAt(i, m);
+    flowers.setColorAt(i, col.setHex(petalShades[i % petalShades.length]));
+  }
+  g.add(flowers);
+
+  // scattered boulders, half-sunk into the hills
+  const ROCKS = 8;
+  const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.5, 0), envMats.rock, ROCKS);
+  for (let i = 0; i < ROCKS; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side * (10 + Math.random() * 34);
+    const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
+    const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
+    p.set(x, -6.5 + terrainHeight(x, zz) + 0.15, zL);
+    q.setFromEuler(e.set(Math.random() * 3, Math.random() * 3, Math.random() * 3));
+    sv.setScalar(0.5 + Math.random() * 0.9);
+    m.compose(p, q, sv);
+    rocks.setMatrixAt(i, m);
+    rocks.setColorAt(i, col.setHex(i % 2 ? 0xb4b9c6 : 0xc4c8d2));
+  }
+  g.add(rocks);
+
   return g;
 }
 const cityTiles = [buildEnvTile(), buildEnvTile()];
@@ -698,6 +831,31 @@ const fireflySwarms = [];
 }
 let nightAmount = 0; // star opacity mirrored for the animation loop
 
+// ----- Birds: small flapping silhouettes crossing the sky (morning/day) ----------
+const birds = [];
+{
+  const bodyGeo = new THREE.ConeGeometry(0.13, 0.6, 5);
+  bodyGeo.rotateZ(-Math.PI / 2); // nose along +x
+  const wingGeo = new THREE.BoxGeometry(0.95, 0.045, 0.3);
+  wingGeo.translate(0.48, 0, 0); // flap from the shoulder
+  for (let i = 0; i < 8; i++) {
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(bodyGeo, wildlifeMats.bird));
+    const wingL = new THREE.Mesh(wingGeo, wildlifeMats.bird);
+    wingL.rotation.y = Math.PI / 2;
+    const wingR = new THREE.Mesh(wingGeo, wildlifeMats.bird);
+    wingR.rotation.y = -Math.PI / 2;
+    grp.add(wingL, wingR);
+    const dir = i % 2 === 0 ? 1 : -1;
+    grp.position.set((Math.random() - 0.5) * 120, 13 + Math.random() * 10, -40 - Math.random() * 130);
+    grp.scale.setScalar(0.8 + Math.random() * 0.5);
+    if (dir < 0) grp.rotation.y = Math.PI;
+    grp.userData = { dir, speed: 2.2 + Math.random() * 1.6, phase: Math.random() * 6, wingL, wingR };
+    scene.add(grp);
+    birds.push(grp);
+  }
+}
+
 const cloudTex = makeCloudTexture();
 const skyClouds = [];
 const mistClouds = [];
@@ -904,26 +1062,31 @@ window.__game = game; // debug handle
 const PERIODS = [
   { name: 'Morning',  zenith: 0x4f92e0, mid: 0x9ec7ef, horizon: 0xffe2b8, fog: 0xf2e0c8, terrain: 0xaacfae, cloud: 0xfff0dc,
     sun: 0xffd9a8, sunI: 1.2,  hemiI: 1.0,  lane: 0,
-    sunY: 7,   sunCol: 0xffca8f, sunO: 0.85, moonY: 8,  moonO: 0, starO: 0 },
+    sunY: 7,   sunCol: 0xffca8f, sunO: 0.85, moonY: 8,  moonO: 0, starO: 0,
+    birdW: 1,    deerW: 1,   foxW: 0,    cdeerW: 0 },
   { name: 'Day',      zenith: 0x2c6fd1, mid: 0x6fb0ea, horizon: 0xd8eefb, fog: 0xdceaf6, terrain: 0x9ccf9f, cloud: 0xffffff,
     sun: 0xfff2dd, sunI: 1.4,  hemiI: 1.1,  lane: 0,
-    sunY: 34,  sunCol: 0xfff4da, sunO: 0.7,  moonY: 8,  moonO: 0, starO: 0 },
+    sunY: 34,  sunCol: 0xfff4da, sunO: 0.7,  moonY: 8,  moonO: 0, starO: 0,
+    birdW: 1,    deerW: 0.8, foxW: 0.1,  cdeerW: 0 },
   { name: 'Sunset',   zenith: 0x5b4a9e, mid: 0xb96e93, horizon: 0xff9b4a, fog: 0xeda06b, terrain: 0x9c8f7e, cloud: 0xffc7a0,
     sun: 0xff9a5c, sunI: 1.25, hemiI: 0.85, lane: 0.02,
-    sunY: 5.5, sunCol: 0xff8f3d, sunO: 1.0,  moonY: 10, moonO: 0, starO: 0.12 },
+    sunY: 5.5, sunCol: 0xff8f3d, sunO: 1.0,  moonY: 10, moonO: 0, starO: 0.12,
+    birdW: 0.25, deerW: 0.3, foxW: 1,    cdeerW: 0 },
   { name: 'Twilight', zenith: 0x222a58, mid: 0x45487f, horizon: 0xa88bc0, fog: 0x9187b4, terrain: 0x5c6187, cloud: 0x9089b8,
     sun: 0xa48fdc, sunI: 0.9,  hemiI: 0.7,  lane: 0.05,
-    sunY: -6,  sunCol: 0xc887b8, sunO: 0.35, moonY: 14, moonO: 0.55, starO: 0.7 },
+    sunY: -6,  sunCol: 0xc887b8, sunO: 0.35, moonY: 14, moonO: 0.55, starO: 0.7,
+    birdW: 0,    deerW: 0,   foxW: 0.35, cdeerW: 0.45 },
   { name: 'Night',    zenith: 0x080d24, mid: 0x171f44, horizon: 0x2e3763, fog: 0x333b64, terrain: 0x353c63, cloud: 0x3f4a78,
     sun: 0x93a7ff, sunI: 0.65, hemiI: 0.55, lane: 0.09,
-    sunY: -20, sunCol: 0x93a7ff, sunO: 0,    moonY: 30, moonO: 1, starO: 1 },
+    sunY: -20, sunCol: 0x93a7ff, sunO: 0,    moonY: 30, moonO: 1, starO: 1,
+    birdW: 0,    deerW: 0,   foxW: 0,    cdeerW: 1 },
 ];
 const PERIOD_DIST = 340; // world units of travel per period (~20s at cruise speed)
 let timePhase = 0;       // 0..5, wraps forever
 let laneGlow = 0;        // tile self-illumination, rises after dark for readability
 
 // the terrain is the ground now; the flat floor plane stays retired
-floor.visible = false;
+floor.visible = true; // re-enabled as the ground skirt beneath the terrain
 
 const periodColA = new THREE.Color();
 const periodColB = new THREE.Color();
@@ -953,7 +1116,11 @@ function updatePeriod(flowDist) {
   scene.fog.color.copy(lerpHex(a.fog, b.fog, t));
   // scenery tints
   envMats.terrain.color.copy(lerpHex(a.terrain, b.terrain, t));
+  envMats.tuft.color.copy(envMats.terrain.color); // grass follows the meadow hue
+  floorMat.color.copy(envMats.terrain.color).lerp(scene.fog.color, 0.4); // skirt recedes into the haze
   cloudTint.copy(lerpHex(a.cloud, b.cloud, t));
+  envMats.flower.color.copy(cloudTint);
+  envMats.rock.color.copy(cloudTint);
   envMats.canopy.color.copy(cloudTint);
   envMats.trunk.color.copy(cloudTint);
   for (const cl of skyClouds) cl.material.color.copy(cloudTint);
@@ -979,6 +1146,17 @@ function updatePeriod(flowDist) {
   envMats.crystalA.emissiveIntensity = starO * (1.1 + Math.sin(elapsed * 1.3) * 0.45);
   envMats.crystalB.emissiveIntensity = starO * (1.1 + Math.sin(elapsed * 1.3 + 2.2) * 0.45);
   for (const bl of balloons) bl.userData.mat.emissiveIntensity = starO * 0.5;
+  // wildlife fades in and out with its period
+  wildlifeWeights.bird = L(a.birdW, b.birdW);
+  wildlifeWeights.deer = L(a.deerW, b.deerW);
+  wildlifeWeights.fox = L(a.foxW, b.foxW);
+  wildlifeWeights.cdeer = L(a.cdeerW, b.cdeerW);
+  wildlifeMats.bird.opacity = wildlifeWeights.bird;
+  wildlifeMats.deer.opacity = wildlifeWeights.deer;
+  wildlifeMats.deerDark.opacity = Math.max(wildlifeWeights.deer, wildlifeWeights.fox);
+  wildlifeMats.fox.opacity = wildlifeWeights.fox;
+  wildlifeMats.crystalDeer.opacity = wildlifeWeights.cdeer;
+  wildlifeMats.crystalDeer.emissiveIntensity = wildlifeWeights.cdeer * (0.75 + Math.sin(elapsed * 1.6) * 0.3);
   laneGlow = L(a.lane, b.lane);
 }
 window.__setPhase = p => { timePhase = p; }; // debug: jump the time-of-day clock
@@ -987,8 +1165,10 @@ function wave() { return waveAt(game.solved); }
 function wallInWave() { return (game.solved % WAVE_SIZE) + 1; }
 function isBossWall() { return wall ? wall.boss : false; }
 // Retain only a barely perceptible distance fade; the lane should read edge to edge.
-scene.fog.near = 165;
-scene.fog.far = 340;
+// Clear over the lane, thick enough at distance to swallow the treadmill
+// spawn seam — scenery materializes behind the haze instead of popping in.
+scene.fog.near = 110;
+scene.fog.far = 265;
 
 function waveAt(s) { return Math.floor(s / WAVE_SIZE) + 1; }
 function bossAt(s) { return game.mode !== 'daily' && s % WAVE_SIZE === WAVE_SIZE - 1; }
@@ -1435,6 +1615,38 @@ function animate() {
     bl.position.y = bl.userData.baseY + Math.sin(elapsed * 0.5 + i * 2.1) * 0.9;
     if (bl.position.z > 20) bl.position.z -= 260;
   }
+  // wildlife: birds cross the sky; ground animals idle quietly on the hills
+  const birdsOut = wildlifeWeights.bird > 0.02;
+  for (const bird of birds) {
+    bird.visible = birdsOut;
+    if (!birdsOut) continue;
+    const u = bird.userData;
+    bird.position.x += u.dir * u.speed * dt;
+    bird.position.z += flow * dt * 0.12;
+    bird.position.y += Math.sin(elapsed * 1.3 + u.phase) * dt * 0.4;
+    if (Math.abs(bird.position.x) > 85) bird.position.x = -u.dir * 85;
+    if (bird.position.z > 15) bird.position.z -= 160;
+    const flap = Math.sin(elapsed * 9 + u.phase) * 0.55 + 0.15;
+    u.wingL.rotation.x = -flap;
+    u.wingR.rotation.x = flap;
+  }
+  for (const w of wildlife) {
+    const weight = w.type === 'deer' ? wildlifeWeights.deer
+      : w.type === 'fox' ? wildlifeWeights.fox
+      : wildlifeWeights.cdeer;
+    w.group.visible = weight > 0.02;
+    if (!w.group.visible) continue;
+    if (w.type === 'deer') {
+      // graze: head dips down, holds, lifts to look around
+      w.head.rotation.z = -Math.max(0, Math.sin(elapsed * 0.5 + w.phase)) * 0.7;
+    } else if (w.type === 'fox') {
+      w.tail.rotation.z = 0.35 + Math.sin(elapsed * 3 + w.phase) * 0.25;
+      w.group.rotation.y += Math.sin(elapsed * 0.23 + w.phase) * dt * 0.15; // slow wander turn
+    } else {
+      w.head.rotation.y = Math.sin(elapsed * 0.35 + w.phase) * 0.4; // majestic look-around
+    }
+  }
+
   // night magic: breathing aurora + twinkling firefly swarms, gone by day
   for (let i = 0; i < auroras.length; i++) {
     const au = auroras[i];
