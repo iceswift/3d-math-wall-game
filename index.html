@@ -318,6 +318,430 @@
     z-index: 5;
   }
 
+  /* ---------- Customization studio ---------- */
+  #custom-screen {
+    position: fixed; inset: 0;
+    z-index: 10;
+    display: none;
+    pointer-events: none; /* the 3D preview stays draggable outside the panel */
+  }
+  #custom-screen.visible { display: block; }
+  #custom-header {
+    position: absolute;
+    top: 22px; left: 22px;
+    width: calc(100% - min(480px, 48vw) - 66px);
+    text-align: center;
+  }
+  #custom-title {
+    font-size: 26px; font-weight: 900;
+    letter-spacing: 4px;
+    color: var(--ink);
+    text-shadow: 0 3px 0 rgba(255,255,255,0.8);
+  }
+  #custom-hint {
+    font-size: 11px; font-weight: 700; color: var(--ink);
+    opacity: 0.62; margin-top: 4px;
+  }
+  #preview-lighting,
+  #preview-camera {
+    pointer-events: auto;
+    position: absolute;
+    left: 22px;
+    width: calc(100% - min(480px, 48vw) - 66px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  #preview-lighting { top: 82px; }
+  #preview-camera { bottom: 24px; }
+  .preview-tools-label {
+    font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
+    color: var(--ink); opacity: 0.5;
+    margin-right: 3px;
+  }
+  .preview-tool {
+    min-width: 44px; min-height: 44px;
+    padding: 7px 10px;
+    border: 2px solid rgba(43,58,85,0.1);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: blur(8px);
+    color: var(--ink);
+    font-family: inherit; font-size: 10px; font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(43,58,85,0.1);
+  }
+  .preview-tool.sel {
+    border-color: #7568cf;
+    background: #e8e2ff;
+    color: #5546b7;
+  }
+  .preview-tool.icon { font-size: 20px; padding: 4px 9px; }
+  .preview-tool:focus-visible {
+    outline: 3px solid #2f6bff;
+    outline-offset: 2px;
+  }
+  #custom-panel {
+    pointer-events: auto;
+    position: absolute;
+    top: 18px; right: 18px; bottom: 18px;
+    width: min(440px, 46vw);
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.72);
+    border-radius: 24px;
+    box-shadow: 0 18px 48px rgba(43,58,85,0.22);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #custom-meta {
+    flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+    padding: 14px 16px 10px;
+  }
+  .collection-summary small {
+    display: block;
+    color: #7568cf; font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
+  }
+  .collection-summary strong { color: var(--ink); font-size: 13px; }
+  .studio-quick-actions { display: flex; gap: 7px; }
+  .studio-icon-btn {
+    min-width: 44px; min-height: 44px;
+    padding: 6px 10px;
+    border: 2px solid transparent; border-radius: 14px;
+    background: #eef1f8;
+    color: var(--ink);
+    font-family: inherit; font-size: 16px; font-weight: 900;
+    cursor: pointer;
+  }
+  .studio-icon-btn.sel { border-color: #ff5f8f; background: #ffe5ee; }
+  .studio-icon-btn.rolling { animation: randomizeRoll 420ms cubic-bezier(.2,1.4,.5,1); }
+  @keyframes randomizeRoll { 55% { transform: rotate(22deg) scale(1.16); } }
+  #custom-tabs {
+    flex: none;
+    display: flex; gap: 5px;
+    padding: 0 12px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-bottom: 1px solid rgba(43,58,85,0.09);
+  }
+  #custom-tabs::-webkit-scrollbar { display: none; }
+  .custom-tab {
+    position: relative;
+    min-height: 40px;
+    flex: 0 0 auto;
+    padding: 7px 8px;
+    border: 0; border-radius: 12px;
+    background: transparent;
+    color: var(--ink); opacity: 0.58;
+    font-family: inherit; font-size: 9px; font-weight: 900;
+    cursor: pointer;
+  }
+  .custom-tab.sel { background: #e8e2ff; color: #5546b7; opacity: 1; }
+  .tab-badge {
+    display: none;
+    min-width: 17px; height: 17px;
+    margin-left: 4px; padding: 0 4px;
+    border-radius: 9px;
+    background: #ff5f8f; color: #fff;
+    font-size: 9px; line-height: 17px;
+  }
+  .tab-badge.visible { display: inline-block; }
+  #custom-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 18px 18px 12px;
+    scrollbar-width: thin;
+  }
+  .custom-tab-panel { display: none; }
+  .custom-tab-panel.active { display: block; }
+  .featured-hero {
+    padding: 15px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #e8e2ff, #fce9f1);
+    border: 1px solid rgba(117,104,207,0.14);
+    margin-bottom: 16px;
+  }
+  .featured-hero small {
+    display: block; margin-bottom: 4px;
+    color: #7568cf; font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
+  }
+  .featured-hero strong { display: block; color: var(--ink); font-size: 18px; }
+  .featured-hero p { margin-top: 4px; color: var(--ink); opacity: 0.64; font-size: 11px; font-weight: 650; }
+  .c-section + .c-section {
+    border-top: 1px solid rgba(43,58,85,0.09);
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+  .c-section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .c-section-head b {
+    font-size: 11px; font-weight: 900; letter-spacing: 2px;
+    color: #7568cf;
+  }
+  .c-section-head small {
+    color: var(--ink); opacity: 0.52;
+    font-size: 10px; font-weight: 700;
+  }
+  .c-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .c-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .c-label {
+    flex: none; width: 48px;
+    font-size: 10px; font-weight: 800; letter-spacing: 2px;
+    color: #7568cf;
+  }
+  .swatch {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 3px solid rgba(43,58,85,0.15);
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+    transition: transform 120ms ease, border-color 120ms ease;
+  }
+  .swatch.sel { border-color: var(--ink); transform: scale(1.06); }
+  .swatch.sel::after {
+    content: '✓';
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    color: #fff; font-weight: 1000; font-size: 16px;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.72);
+  }
+  .chip {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 13px;
+    background: #eef1f8;
+    border: 2px solid transparent;
+    font-family: inherit;
+    font-size: 11px; font-weight: 850;
+    color: var(--ink);
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .chip.sel {
+    border-color: #7568cf;
+    background: #e8e2ff;
+    box-shadow: inset 0 0 0 1px rgba(117,104,207,0.12);
+  }
+  .chip.locked { opacity: 0.58; cursor: not-allowed; }
+  .preset-card {
+    position: relative;
+    min-height: 68px;
+    display: flex; flex-direction: column;
+    align-items: flex-start; justify-content: center;
+    text-align: left;
+  }
+  .preset-card strong { font-size: 12px; }
+  .preset-card small {
+    display: block; margin-top: 3px;
+    font-size: 9px; line-height: 1.2;
+    opacity: 0.64;
+  }
+  .new-badge {
+    position: absolute; top: -5px; right: -4px;
+    padding: 3px 6px;
+    border-radius: 8px;
+    background: #ff5f8f; color: #fff;
+    font-size: 8px; font-weight: 1000; letter-spacing: 0.7px;
+    box-shadow: 0 3px 8px rgba(255,95,143,0.28);
+  }
+  .palette-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .palette-card {
+    min-height: 64px;
+    display: flex; align-items: center; gap: 9px;
+    text-align: left;
+  }
+  .palette-dots { display: flex; flex: none; }
+  .palette-dot {
+    width: 23px; height: 23px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.9);
+    box-shadow: 0 1px 4px rgba(43,58,85,0.2);
+  }
+  .palette-dot + .palette-dot { margin-left: -7px; }
+  .palette-card strong { overflow: hidden; text-overflow: ellipsis; }
+  #advanced-colors { margin-top: 10px; }
+  #advanced-colors summary {
+    min-height: 44px;
+    display: flex; align-items: center;
+    cursor: pointer;
+    color: var(--ink); opacity: 0.7;
+    font-size: 11px; font-weight: 800;
+  }
+  #advanced-colors .c-row { margin: 8px 0 4px; }
+  #material-row .chip, #fx-row .chip { width: 100%; }
+  .material-card { min-height: 82px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+  .material-orb {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 25%, #fff, var(--orb, #6d8cff) 38%, #263c80 100%);
+    box-shadow: inset -4px -5px 8px rgba(20,30,70,0.22), 0 4px 8px rgba(43,58,85,0.18);
+  }
+  .material-card[data-material="matte"] .material-orb { box-shadow: none; filter: saturate(0.75); }
+  .material-card[data-material="metal"] .material-orb { filter: grayscale(0.35) contrast(1.2); }
+  .material-card[data-material="crystal"] .material-orb { opacity: 0.62; box-shadow: inset 0 0 0 3px #fff, 0 4px 10px rgba(90,160,230,0.25); }
+  .material-card[data-material="neon"] .material-orb { box-shadow: 0 0 14px var(--orb, #6dff75), inset 0 0 7px #fff; }
+  .material-card[data-material="holo"] .material-orb { background: conic-gradient(#ff9acb, #8adfff, #bfa1ff, #ffef9b, #ff9acb); }
+  .effect-card { min-height: 68px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+  .effect-icon { font-size: 20px; }
+  #fx-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #collection-grid, #favorite-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .favorite-card {
+    min-height: 70px;
+    display: flex; align-items: center; gap: 9px;
+    position: relative; text-align: left;
+  }
+  .favorite-card small { display: block; margin-top: 2px; opacity: 0.56; font-size: 9px; }
+  .empty-collection {
+    grid-column: 1 / -1;
+    padding: 18px; border-radius: 16px;
+    background: #f3f5fa; color: var(--ink); opacity: 0.65;
+    text-align: center; font-size: 11px; font-weight: 700;
+  }
+  #unlock-celebration {
+    pointer-events: none;
+    position: absolute;
+    left: 22px; top: 50%;
+    width: calc(100% - min(480px, 48vw) - 66px);
+    transform: translateY(-50%) scale(0.72);
+    opacity: 0;
+    z-index: 4;
+    display: flex; justify-content: center;
+    transition: opacity 180ms ease, transform 320ms cubic-bezier(.2,1.5,.5,1);
+  }
+  #unlock-celebration.show { opacity: 1; transform: translateY(-50%) scale(1); }
+  .unlock-card {
+    min-width: 260px;
+    padding: 18px 24px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, #7568cf, #ff5f8f);
+    color: #fff; text-align: center;
+    box-shadow: 0 18px 45px rgba(85,70,183,0.35);
+  }
+  .unlock-card small { display: block; font-size: 10px; font-weight: 900; letter-spacing: 2px; }
+  .unlock-card strong { display: block; margin-top: 4px; font-size: 23px; }
+  #custom-screen.equipping #custom-apply { animation: equipButton 520ms ease; }
+  #custom-screen.equipping #custom-title { animation: equipTitle 520ms ease; }
+  @keyframes equipButton { 45% { transform: scale(1.08); box-shadow: 0 0 24px rgba(255,122,89,0.75); } }
+  @keyframes equipTitle { 45% { color: #3ecf8e; transform: scale(1.08); } }
+  #custom-actions {
+    flex: none;
+    display: grid;
+    grid-template-columns: 0.9fr 1fr 1.25fr;
+    gap: 8px;
+    padding: 12px 16px 14px;
+    background: rgba(255,255,255,0.97);
+    border-top: 1px solid rgba(43,58,85,0.1);
+  }
+  .custom-action {
+    min-height: 46px;
+    border: 2px solid transparent; border-radius: 15px;
+    background: #eef1f8;
+    color: var(--ink);
+    font-family: inherit; font-size: 12px; font-weight: 900;
+    cursor: pointer;
+  }
+  .custom-action:disabled { cursor: default; opacity: 0.72; }
+  #custom-reset { color: #7568cf; }
+  #custom-apply {
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 5px 0 #d95a3c;
+  }
+  #custom-apply:active { transform: translateY(3px); box-shadow: 0 2px 0 #d95a3c; }
+  #custom-panel button:focus-visible,
+  #advanced-colors summary:focus-visible {
+    outline: 3px solid #2f6bff;
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 700px) and (orientation: portrait) {
+    #custom-header { top: 12px; left: 8px; width: calc(100% - 16px); }
+    #custom-title { font-size: 21px; letter-spacing: 3px; }
+    #custom-panel {
+      top: auto; left: 6px; right: 6px; bottom: 0;
+      width: auto;
+      max-height: 56vh;
+      border-radius: 22px 22px 0 0;
+    }
+    #preview-lighting {
+      top: 62px; left: 8px;
+      width: calc(100% - 16px);
+    }
+    #preview-camera {
+      left: 4px; bottom: calc(56vh + 8px);
+      width: calc(100% - 8px);
+      gap: 4px;
+    }
+    .preview-tools-label { display: none; }
+    .preview-tool { padding: 6px 8px; min-width: 42px; }
+    #custom-scroll { padding: 14px 14px 10px; }
+    #custom-meta { padding: 10px 12px 7px; }
+    #custom-tabs { padding: 0 8px 8px; }
+    .custom-tab { min-height: 40px; padding: 7px 10px; }
+    .c-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .palette-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #unlock-celebration { left: 8px; width: calc(100% - 16px); top: 29%; }
+    #custom-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  }
+
+  @media (max-height: 520px) and (orientation: landscape) {
+    #menu-screen { gap: 7px; padding: 8px; }
+    #menu-screen h1 { font-size: 30px; }
+    #menu-screen p { font-size: 12px; line-height: 1.25; max-width: 520px; }
+    #menu-screen .big-btn {
+      width: min(280px, 44vw);
+      padding: 7px 14px;
+      border-radius: 14px;
+      font-size: 16px;
+      box-shadow: 0 4px 0 #d95a3c, 0 7px 16px rgba(255,122,89,0.3);
+    }
+    #menu-screen .big-btn small { display: inline; margin-left: 8px; font-size: 9px; }
+    #menu-screen .big-btn.ghost { width: min(190px, 36vw); font-size: 14px; }
+    #custom-header {
+      top: 10px; left: 8px;
+      width: calc(48vw - 16px);
+    }
+    #custom-title { font-size: 19px; letter-spacing: 3px; }
+    #custom-hint { font-size: 10px; }
+    #preview-lighting {
+      top: 58px; left: 8px;
+      width: calc(48vw - 16px);
+    }
+    #preview-camera {
+      left: 6px; bottom: 8px;
+      width: calc(48vw - 12px);
+      gap: 4px;
+    }
+    .preview-tools-label { display: none; }
+    .preview-tool { min-width: 44px; min-height: 44px; padding: 5px 7px; }
+    #custom-panel {
+      top: 6px; right: 6px; bottom: 6px;
+      width: min(500px, 52vw);
+      border-radius: 18px;
+    }
+    #custom-scroll { padding: 12px; }
+    #custom-meta { padding: 8px 10px 6px; }
+    #custom-tabs { padding: 0 8px 6px; }
+    .custom-tab { min-height: 36px; padding: 5px 8px; }
+    .c-section + .c-section { margin-top: 12px; padding-top: 12px; }
+    #custom-actions { padding: 8px 10px 10px; }
+    #unlock-celebration { left: 6px; width: calc(48vw - 12px); }
+  }
+
   /* ---------- Small screens (portrait phones) ---------- */
   @media (max-width: 480px) {
     #ops { gap: 10px; bottom: 88px; }
@@ -369,6 +793,101 @@
     <button class="big-btn" id="play-classic">CLASSIC<small id="best-classic">best 0</small></button>
     <button class="big-btn alt" id="play-time">TIME ATTACK<small id="best-time">best 0</small></button>
     <button class="big-btn alt2" id="play-daily">DAILY CHALLENGE<small id="best-daily">today's best 0</small></button>
+    <button class="big-btn ghost" id="customize-btn">🎨 CUSTOMIZE</button>
+  </div>
+
+  <div id="custom-screen">
+    <div id="custom-header">
+      <div id="custom-title">CUSTOMIZE</div>
+      <div id="custom-hint">drag to rotate and tilt · scroll or use +/− to zoom</div>
+    </div>
+    <div id="preview-lighting" role="group" aria-label="Preview lighting">
+      <span class="preview-tools-label">LIGHTING</span>
+      <button class="preview-tool sel" id="light-studio" aria-pressed="true">STUDIO</button>
+      <button class="preview-tool" id="light-game" aria-pressed="false">GAME</button>
+    </div>
+    <div id="preview-camera" role="group" aria-label="Preview camera controls">
+      <span class="preview-tools-label">VIEW</span>
+      <button class="preview-tool sel" id="view-front" aria-pressed="true">FRONT</button>
+      <button class="preview-tool" id="view-angle" aria-pressed="false">3/4</button>
+      <button class="preview-tool" id="view-side" aria-pressed="false">SIDE</button>
+      <button class="preview-tool icon" id="view-zoom-out" aria-label="Zoom out">−</button>
+      <button class="preview-tool icon" id="view-zoom-in" aria-label="Zoom in">+</button>
+      <button class="preview-tool icon" id="view-reset" aria-label="Reset view">↺</button>
+    </div>
+    <div id="unlock-celebration" role="status" aria-live="polite">
+      <div class="unlock-card"><small>COSMETIC UNLOCKED</small><strong id="unlock-name"></strong></div>
+    </div>
+    <aside id="custom-panel" aria-label="Number customization controls">
+      <div id="custom-meta">
+        <div class="collection-summary"><small>COLLECTION</small><strong id="collection-progress">3 / 6 looks</strong></div>
+        <div class="studio-quick-actions">
+          <button class="studio-icon-btn" id="custom-randomize" aria-label="Randomize owned cosmetics" title="Randomize">🎲</button>
+          <button class="studio-icon-btn" id="custom-favorite" aria-label="Add current style to favorites" aria-pressed="false" title="Favorite">♡</button>
+        </div>
+      </div>
+      <nav id="custom-tabs" aria-label="Customization categories" role="tablist">
+        <button class="custom-tab sel" data-custom-tab="featured" role="tab" aria-selected="true">FEATURED</button>
+        <button class="custom-tab" data-custom-tab="looks" role="tab" aria-selected="false">LOOKS <span class="tab-badge" id="looks-new-count"></span></button>
+        <button class="custom-tab" data-custom-tab="colors" role="tab" aria-selected="false">COLORS</button>
+        <button class="custom-tab" data-custom-tab="materials" role="tab" aria-selected="false">MATERIAL</button>
+        <button class="custom-tab" data-custom-tab="effects" role="tab" aria-selected="false">EFFECTS</button>
+        <button class="custom-tab" data-custom-tab="collection" role="tab" aria-selected="false">COLLECTION</button>
+      </nav>
+      <div id="custom-scroll">
+        <div class="custom-tab-panel active" data-custom-panel="featured" role="tabpanel">
+          <div class="featured-hero" id="style-summary"></div>
+          <section class="c-section">
+            <div class="c-section-head"><b>QUICK PICKS</b><small>Ready-to-play looks</small></div>
+            <div id="featured-row" class="c-grid"></div>
+          </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="looks" role="tabpanel">
+        <section class="c-section">
+          <div class="c-section-head"><b>PRESETS</b><small>Complete looks</small></div>
+          <div id="preset-row" class="c-grid"></div>
+        </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="colors" role="tabpanel">
+        <section class="c-section">
+          <div class="c-section-head"><b>PALETTE</b><small>Face + edge</small></div>
+          <div id="palette-row" class="c-grid palette-grid"></div>
+          <details id="advanced-colors">
+            <summary>Fine-tune face and edge colors</summary>
+            <div class="c-row"><span class="c-label">FACE</span><span id="primary-row" class="c-row" style="flex:1"></span></div>
+            <div class="c-row"><span class="c-label">EDGE</span><span id="secondary-row" class="c-row" style="flex:1"></span></div>
+          </details>
+        </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="materials" role="tabpanel">
+        <section class="c-section">
+          <div class="c-section-head"><b>MATERIAL</b><small>Surface finish</small></div>
+          <div id="material-row" class="c-grid"></div>
+        </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="effects" role="tabpanel">
+        <section class="c-section">
+          <div class="c-section-head"><b>EFFECTS</b><small>Gameplay flair</small></div>
+          <div id="fx-row" class="c-grid"></div>
+        </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="collection" role="tabpanel">
+          <section class="c-section">
+            <div class="c-section-head"><b>ALL LOOKS</b><small id="collection-owned-label">Owned</small></div>
+            <div id="collection-grid" class="c-grid"></div>
+          </section>
+          <section class="c-section">
+            <div class="c-section-head"><b>FAVORITES</b><small>Saved combinations</small></div>
+            <div id="favorite-row" class="c-grid"></div>
+          </section>
+        </div>
+      </div>
+      <div id="custom-actions">
+        <button class="custom-action" id="custom-reset">RESET</button>
+        <button class="custom-action" id="custom-cancel">CANCEL</button>
+        <button class="custom-action" id="custom-apply">APPLY</button>
+      </div>
+    </aside>
   </div>
 
   <div class="screen hidden" id="pause-screen">

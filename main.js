@@ -111,10 +111,13 @@ const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerH
 const camBase = new THREE.Vector3(0, 7.5, 10.5);
 camera.position.copy(camBase);
 camera.lookAt(0, 1.2, -13); // aim low: lifts the whole scene above the bottom UI
+let studioScene = null;
+let studioCamera = null;
 
 // ----- Post-processing: soft bloom on glows -----------------------------------
 const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   0.55,  // strength — the reference is unapologetically bloomy
@@ -127,8 +130,13 @@ composer.addPass(new OutputPass());
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  if (studioCamera) {
+    studioCamera.aspect = window.innerWidth / window.innerHeight;
+    studioCamera.updateProjectionMatrix();
+  }
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
+  layoutPreviewNumber();
 });
 
 // ----- Lights: high-key, warm, soft -------------------------------------------
@@ -930,15 +938,102 @@ loadFont().then(f => {
   cardPop = 0;
 });
 
-const playerMat = new THREE.MeshPhysicalMaterial({
-  color: 0x2f6bff,
-  roughness: 0.22,
-  metalness: 0.1,
-  clearcoat: 0.8,
-  clearcoatRoughness: 0.25,
-  envMap: envTex,
-  envMapIntensity: 0.7,
+// ----- Number style: player-customizable materials (lobby CUSTOMIZE studio) ----
+// Extruded numbers have two material groups: [0] faces, [1] beveled sides —
+// primary colors the face, secondary the edge.
+const MATERIAL_TYPES = {
+  glossy: { roughness: 0.22, metalness: 0.1,  clearcoat: 0.8, opacity: 1,    iridescence: 0 },
+  matte:  { roughness: 0.95, metalness: 0,    clearcoat: 0,   opacity: 1,    iridescence: 0 },
+  metal:  { roughness: 0.28, metalness: 0.95, clearcoat: 0.4, opacity: 1,    iridescence: 0 },
+  crystal:{ roughness: 0.08, metalness: 0,    clearcoat: 1,   opacity: 0.75, iridescence: 0 },
+  neon:   { roughness: 0.52, metalness: 0,    clearcoat: 0.12,opacity: 1,    iridescence: 0 },
+  holo:   { roughness: 0.25, metalness: 0.7,  clearcoat: 0.6, opacity: 1,    iridescence: 1 },
+};
+const NUMBER_PRESETS = [
+  { id: 'classic',  name: 'Classic',  needs: 0,   style: { primary: '#2f6bff', secondary: '#2456d9', material: 'glossy',  glow: false, trail: 'none' } },
+  { id: 'gold',     name: 'Gold',     needs: 0,   style: { primary: '#ffd166', secondary: '#e0a83f', material: 'metal',   glow: false, trail: 'none' } },
+  { id: 'neon',     name: 'Neon',     needs: 0,   style: { primary: '#8aff5f', secondary: '#5fd93e', material: 'neon',    glow: true,  trail: 'sparkle' } },
+  { id: 'ice',      name: 'Ice',      needs: 150, style: { primary: '#bfe6ff', secondary: '#8fc8f0', material: 'crystal', glow: true,  trail: 'none' } },
+  { id: 'holo',     name: 'Holo',     needs: 400, style: { primary: '#d9c8f5', secondary: '#b9a8f0', material: 'holo',    glow: false, trail: 'sparkle' } },
+  { id: 'midnight', name: 'Midnight', needs: 800, style: { primary: '#2b3a55', secondary: '#141d33', material: 'glossy',  glow: true,  trail: 'sparkle' } },
+];
+const DEFAULT_NUMBER_STYLE = Object.freeze({
+  primary: '#2f6bff', secondary: '#2456d9', material: 'glossy', glow: false, trail: 'none',
 });
+const COLOR_PALETTES = [
+  { id: 'ocean',    name: 'Ocean',    primary: '#2f6bff', secondary: '#2456d9' },
+  { id: 'coral',    name: 'Coral',    primary: '#ff7a59', secondary: '#d95a3c' },
+  { id: 'mint',     name: 'Mint',     primary: '#3ecf8e', secondary: '#1fa46b' },
+  { id: 'solar',    name: 'Solar',    primary: '#ffd166', secondary: '#e0a83f' },
+  { id: 'cosmic',   name: 'Cosmic',   primary: '#9a6ff2', secondary: '#7150c6' },
+  { id: 'candy',    name: 'Candy',    primary: '#ff5f8f', secondary: '#d83e70' },
+  { id: 'frost',    name: 'Frost',    primary: '#f2f5ff', secondary: '#b9c3d8' },
+  { id: 'midnight', name: 'Midnight', primary: '#2b3a55', secondary: '#141d33' },
+];
+const COLOR_SWATCHES = [
+  { name: 'Ocean Blue', hex: '#2f6bff' }, { name: 'Deep Blue', hex: '#2456d9' },
+  { name: 'Coral', hex: '#ff7a59' },      { name: 'Mint', hex: '#3ecf8e' },
+  { name: 'Forest', hex: '#1fa46b' },     { name: 'Solar', hex: '#ffd166' },
+  { name: 'Gold', hex: '#e0a83f' },       { name: 'Cosmic', hex: '#9a6ff2' },
+  { name: 'Candy', hex: '#ff5f8f' },      { name: 'Frost', hex: '#f2f5ff' },
+  { name: 'Ink', hex: '#2b3a55' },        { name: 'Midnight', hex: '#141d33' },
+];
+
+function loadNumberStyle() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mathwall-style') || '{}');
+    const validColor = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+    return {
+      primary: validColor(saved.primary) ? saved.primary : DEFAULT_NUMBER_STYLE.primary,
+      secondary: validColor(saved.secondary) ? saved.secondary : DEFAULT_NUMBER_STYLE.secondary,
+      material: MATERIAL_TYPES[saved.material] ? saved.material : DEFAULT_NUMBER_STYLE.material,
+      glow: typeof saved.glow === 'boolean' ? saved.glow : DEFAULT_NUMBER_STYLE.glow,
+      trail: saved.trail === 'sparkle' ? 'sparkle' : 'none',
+    };
+  } catch {
+    return { ...DEFAULT_NUMBER_STYLE };
+  }
+}
+
+const numberStyle = loadNumberStyle();
+
+const faceMat = new THREE.MeshPhysicalMaterial({ envMap: envTex, envMapIntensity: 0.7, clearcoatRoughness: 0.25, iridescenceIOR: 1.5 });
+const sideMat = new THREE.MeshPhysicalMaterial({ envMap: envTex, envMapIntensity: 0.7, clearcoatRoughness: 0.25, iridescenceIOR: 1.5 });
+const playerMats = [faceMat, sideMat];
+
+function applyNumberStyle(save = true) {
+  const m = MATERIAL_TYPES[numberStyle.material] || MATERIAL_TYPES.glossy;
+  const neon = numberStyle.material === 'neon';
+  const zones = [
+    [faceMat, numberStyle.primary, 0.34],
+    [sideMat, numberStyle.secondary, 0.2],
+  ];
+  for (const [mat, hex, neonEmission] of zones) {
+    mat.color.set(hex);
+    mat.roughness = m.roughness;
+    mat.metalness = m.metalness;
+    mat.clearcoat = m.clearcoat;
+    mat.iridescence = m.iridescence;
+    mat.envMapIntensity = neon ? 0.42 : 0.7;
+    mat.transparent = m.opacity < 1;
+    mat.opacity = m.opacity;
+    if (neon) {
+      mat.emissive.set(hex);
+      // Self-lit, but below the point where bloom erases the face and bevel detail.
+      mat.emissiveIntensity = neonEmission;
+    } else if (numberStyle.glow) {
+      mat.emissive.set(hex);
+      mat.emissiveIntensity = 0.35;
+    } else {
+      mat.emissive.setRGB(0, 0, 0);
+      mat.emissiveIntensity = 0;
+    }
+    mat.needsUpdate = true;
+  }
+  if (studioScene && game.state === 'custom') setPreviewLighting(previewLighting);
+  if (save) localStorage.setItem('mathwall-style', JSON.stringify(numberStyle));
+}
+applyNumberStyle(false);
 const player = new THREE.Group();
 let numberMesh = null;
 const blob = new THREE.Mesh(
@@ -982,7 +1077,7 @@ function setPlayerNumberVisual(n) {
     player.remove(numberMesh);
     numberMesh.traverse(o => { if (o.geometry) o.geometry.dispose(); });
   }
-  numberMesh = makeNumberGroup(font, String(n), playerMat, NUMBER_SIZE);
+  numberMesh = makeNumberGroup(font, String(n), playerMats, NUMBER_SIZE);
   player.add(numberMesh);
   cardPop = 1;
 }
@@ -1309,6 +1404,10 @@ $('pw-undo').addEventListener('click', () => usePower('undo'));
 $('pw-skip').addEventListener('click', () => usePower('skip'));
 
 window.addEventListener('keydown', e => {
+  if (game.state === 'custom' && e.key === 'Escape') {
+    cancelCustomize();
+    return;
+  }
   if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') &&
       (game.state === 'playing' || game.state === 'between')) {
     setPaused(!game.paused);
@@ -1567,6 +1666,761 @@ $('menu-btn').addEventListener('click', () => {
   menuScreen.classList.remove('hidden');
 });
 
+// ----- Customization studio ----------------------------------------------------
+const customScreen = $('custom-screen');
+let previewNumber = null;
+let previewSpin = 0.28;
+let previewYaw = -0.2;
+let previewPitch = 0;
+let previewZoom = 1;
+let previewView = null;
+let customOriginalStyle = null;
+let trailT = 0;
+let studioStage = null;
+let studioKey = null;
+let studioFill = null;
+let studioRim = null;
+let studioPlatform = null;
+let studioAura = null;
+let studioTrail = null;
+let studioTrailPositions = null;
+let studioTrailMaterial = null;
+let previewLighting = 'studio';
+const studioTrailParticles = [];
+const STUDIO_TRAIL_MAX = 56;
+const studioColorScratch = new THREE.Color();
+let customTab = 'featured';
+let customApplying = false;
+let equipPulse = 0;
+let unlockCelebrationTimer = null;
+
+function bestClassic() { return Number(localStorage.getItem('mathwall-best-classic') || 0); }
+
+function styleMatches(a, b) {
+  return a.primary === b.primary && a.secondary === b.secondary &&
+    a.material === b.material && a.glow === b.glow && a.trail === b.trail;
+}
+
+function styleFingerprint(style) {
+  return [style.primary, style.secondary, style.material, style.glow ? 1 : 0, style.trail].join('|');
+}
+
+function readStoredArray(key, fallback = []) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    return Array.isArray(parsed) ? parsed : [...fallback];
+  } catch {
+    return [...fallback];
+  }
+}
+
+function validFavoriteStyle(style) {
+  return style && typeof style.primary === 'string' && typeof style.secondary === 'string' &&
+    Boolean(MATERIAL_TYPES[style.material]) && typeof style.glow === 'boolean' &&
+    (style.trail === 'none' || style.trail === 'sparkle');
+}
+
+let favoriteStyles = readStoredArray('mathwall-favorite-styles').filter(validFavoriteStyle).slice(0, 8);
+const seenCosmetics = new Set(readStoredArray('mathwall-cosmetics-seen', ['classic']));
+const knownUnlocks = new Set(readStoredArray('mathwall-known-unlocks', ['classic', 'gold', 'neon']));
+
+function saveFavorites() {
+  localStorage.setItem('mathwall-favorite-styles', JSON.stringify(favoriteStyles));
+}
+
+function markCosmeticSeen(id) {
+  seenCosmetics.add(id);
+  localStorage.setItem('mathwall-cosmetics-seen', JSON.stringify([...seenCosmetics]));
+}
+
+function currentFavoriteIndex() {
+  const key = styleFingerprint(numberStyle);
+  return favoriteStyles.findIndex(style => styleFingerprint(style) === key);
+}
+
+function switchCustomTab(tab) {
+  const valid = ['featured', 'looks', 'colors', 'materials', 'effects', 'collection'];
+  customTab = valid.includes(tab) ? tab : 'featured';
+  for (const button of document.querySelectorAll('[data-custom-tab]')) {
+    const active = button.dataset.customTab === customTab;
+    button.classList.toggle('sel', active);
+    button.setAttribute('aria-selected', String(active));
+    button.tabIndex = active ? 0 : -1;
+    if (active) button.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }
+  for (const panel of document.querySelectorAll('[data-custom-panel]')) {
+    panel.classList.toggle('active', panel.dataset.customPanel === customTab);
+  }
+  $('custom-scroll').scrollTop = 0;
+}
+
+function showUnlockCelebration() {
+  const score = bestClassic();
+  const unlockedNow = NUMBER_PRESETS.filter(p => p.needs > 0 && score >= p.needs && !knownUnlocks.has(p.id));
+  if (!unlockedNow.length) return;
+  for (const preset of unlockedNow) knownUnlocks.add(preset.id);
+  localStorage.setItem('mathwall-known-unlocks', JSON.stringify([...knownUnlocks]));
+  $('unlock-name').textContent = unlockedNow.length === 1
+    ? unlockedNow[0].name
+    : `${unlockedNow[0].name} + ${unlockedNow.length - 1} more`;
+  const celebration = $('unlock-celebration');
+  celebration.classList.add('show');
+  clearTimeout(unlockCelebrationTimer);
+  unlockCelebrationTimer = setTimeout(() => celebration.classList.remove('show'), 2600);
+}
+
+function makeStudioBackdrop(top, bottom) {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, c.height);
+  grad.addColorStop(0, top);
+  grad.addColorStop(1, bottom);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, c.width, c.height);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const studioBackdrops = {
+  studio: makeStudioBackdrop('#d9e6ff', '#f7e9f2'),
+  game: makeStudioBackdrop('#9ec7ef', '#ffe2b8'),
+};
+
+function initStudioScene() {
+  studioScene = new THREE.Scene();
+  studioScene.background = studioBackdrops.studio;
+  studioCamera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.1, 80);
+  studioCamera.position.set(0, 0.65, 10.5);
+  studioCamera.lookAt(0, 0, 0);
+
+  studioStage = new THREE.Group();
+  studioScene.add(studioStage);
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(40, 40),
+    new THREE.MeshStandardMaterial({ color: 0xe8edf7, roughness: 0.96, metalness: 0 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -1.88;
+  floor.receiveShadow = true;
+  studioScene.add(floor);
+
+  studioPlatform = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.55, 2.72, 0.42, 64),
+    new THREE.MeshPhysicalMaterial({ color: 0xf9fbff, roughness: 0.32, metalness: 0.05, clearcoat: 0.55 })
+  );
+  studioPlatform.position.y = -1.66;
+  studioPlatform.receiveShadow = true;
+  studioStage.add(studioPlatform);
+
+  studioFill = new THREE.HemisphereLight(0xe6f0ff, 0xd9cfe4, 1.55);
+  studioScene.add(studioFill);
+  studioKey = new THREE.DirectionalLight(0xffffff, 2.1);
+  studioKey.position.set(-5, 8, 7);
+  studioKey.castShadow = true;
+  studioKey.shadow.mapSize.set(1024, 1024);
+  studioKey.shadow.camera.left = -7;
+  studioKey.shadow.camera.right = 7;
+  studioKey.shadow.camera.top = 7;
+  studioKey.shadow.camera.bottom = -7;
+  studioKey.target = studioStage;
+  studioScene.add(studioKey);
+  studioRim = new THREE.DirectionalLight(0x9a8cff, 1.15);
+  studioRim.position.set(6, 4, -5);
+  studioRim.target = studioStage;
+  studioScene.add(studioRim);
+
+  studioAura = new THREE.Group();
+  for (let i = 0; i < 2; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x2f6bff, transparent: true, opacity: 0.3,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: true,
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.05 + i * 0.22, 0.035, 8, 72), mat);
+    ring.position.z = -0.42 - i * 0.05;
+    studioAura.add(ring);
+  }
+  studioAura.visible = false;
+  studioStage.add(studioAura);
+
+  studioTrailPositions = new Float32Array(STUDIO_TRAIL_MAX * 3);
+  studioTrailPositions.fill(999);
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(studioTrailPositions, 3));
+  const sparkCanvas = document.createElement('canvas');
+  sparkCanvas.width = sparkCanvas.height = 64;
+  const sparkG = sparkCanvas.getContext('2d');
+  const sparkGrad = sparkG.createRadialGradient(32, 32, 0, 32, 32, 32);
+  sparkGrad.addColorStop(0, 'rgba(255,255,255,1)');
+  sparkGrad.addColorStop(0.28, 'rgba(255,255,255,0.9)');
+  sparkGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  sparkG.fillStyle = sparkGrad;
+  sparkG.fillRect(0, 0, 64, 64);
+  const sparkMap = new THREE.CanvasTexture(sparkCanvas);
+  sparkMap.colorSpace = THREE.SRGBColorSpace;
+  studioTrailMaterial = new THREE.PointsMaterial({
+    color: 0x2f6bff, size: 0.16, transparent: true, opacity: 0.9,
+    map: sparkMap, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  });
+  studioTrail = new THREE.Points(trailGeo, studioTrailMaterial);
+  studioTrail.frustumCulled = false;
+  studioTrail.visible = false;
+  studioStage.add(studioTrail);
+  for (let i = 0; i < STUDIO_TRAIL_MAX; i++) {
+    studioTrailParticles.push({ life: 0, x: 999, y: 999, z: 999, vx: 0, vy: 0 });
+  }
+  layoutPreviewNumber();
+}
+
+function layoutPreviewNumber() {
+  if (!studioStage) return;
+  const portrait = window.innerHeight > window.innerWidth;
+  const shortLandscape = !portrait && window.innerHeight <= 520;
+  studioPlatform.visible = !portrait;
+  if (portrait) {
+    studioStage.position.set(0, 2.0, 0);
+    studioStage.scale.setScalar(0.34 * previewZoom);
+  } else if (shortLandscape) {
+    studioStage.position.set(-2.55, 0.15, 0);
+    studioStage.scale.setScalar(0.72 * previewZoom);
+  } else {
+    studioStage.position.set(-2.45, 0.2, 0);
+    studioStage.scale.setScalar(1.02 * previewZoom);
+  }
+}
+
+function updatePreviewToolState() {
+  for (const [id, active] of [
+    ['light-studio', previewLighting === 'studio'], ['light-game', previewLighting === 'game'],
+    ['view-front', previewView === 'front'], ['view-angle', previewView === 'angle'], ['view-side', previewView === 'side'],
+  ]) {
+    const el = $(id);
+    el.classList.toggle('sel', active);
+    el.setAttribute('aria-pressed', String(active));
+  }
+}
+
+function setPreviewLighting(mode) {
+  previewLighting = mode === 'game' ? 'game' : 'studio';
+  const neonPreview = numberStyle.material === 'neon';
+  if (previewLighting === 'game') {
+    studioScene.background = studioBackdrops.game;
+    studioFill.color.setHex(0xd8eaff);
+    studioFill.groundColor.setHex(0xe9eef5);
+    studioFill.intensity = 1.05;
+    studioKey.color.setHex(0xf7fbff);
+    studioKey.intensity = 0.95;
+    studioKey.position.set(5, 9, 7);
+    studioRim.color.setHex(0xa9d8ff);
+    studioRim.intensity = 0.48;
+    studioPlatform.material.color.setHex(0xe9eef8);
+    bloomPass.strength = 0.55;
+  } else {
+    studioScene.background = studioBackdrops.studio;
+    studioFill.color.setHex(0xe6f0ff);
+    studioFill.groundColor.setHex(0xd9cfe4);
+    studioFill.intensity = neonPreview ? 1.08 : 1.55;
+    studioKey.color.setHex(0xffffff);
+    studioKey.intensity = neonPreview ? 1.25 : 2.1;
+    studioKey.position.set(-5, 8, 7);
+    studioRim.color.setHex(0x9a8cff);
+    studioRim.intensity = neonPreview ? 0.72 : 1.15;
+    studioPlatform.material.color.setHex(0xf9fbff);
+    bloomPass.strength = neonPreview ? 0.4 : 0.68;
+  }
+  updatePreviewToolState();
+}
+
+function setPreviewView(view) {
+  previewView = view;
+  previewSpin = 0;
+  if (view === 'front') { previewYaw = 0; previewPitch = 0; }
+  if (view === 'angle') { previewYaw = -0.62; previewPitch = -0.08; }
+  if (view === 'side') { previewYaw = -Math.PI / 2; previewPitch = 0; }
+  updatePreviewToolState();
+}
+
+function changePreviewZoom(delta) {
+  previewZoom = THREE.MathUtils.clamp(previewZoom + delta, 0.72, 1.32);
+  layoutPreviewNumber();
+}
+
+function resetPreviewView() {
+  previewYaw = -0.2;
+  previewPitch = 0;
+  previewZoom = 1;
+  previewSpin = 0.28;
+  previewView = null;
+  layoutPreviewNumber();
+  updatePreviewToolState();
+}
+
+function spawnStudioTrailParticle() {
+  const p = studioTrailParticles.find(item => item.life <= 0);
+  if (!p) return;
+  p.life = 0.75 + Math.random() * 0.45;
+  p.x = (Math.random() - 0.5) * 1.1;
+  p.y = 0.28 + (Math.random() - 0.5) * 1.55;
+  p.z = -0.22 + Math.random() * 0.25;
+  p.vx = -0.75 - Math.random() * 0.65;
+  p.vy = (Math.random() - 0.5) * 0.45;
+}
+
+function clearStudioTrail() {
+  for (const p of studioTrailParticles) p.life = 0;
+  trailT = 0;
+  if (studioTrailPositions) studioTrailPositions.fill(999);
+  if (studioTrail) studioTrail.visible = false;
+}
+
+function updateStudioPreview(dt) {
+  if (!previewNumber) return;
+  previewYaw += previewSpin * dt;
+  previewNumber.rotation.set(previewPitch, previewYaw, 0);
+  previewNumber.position.y = 0.35 + Math.sin(elapsed * 1.5) * 0.08;
+  if (equipPulse > 0) {
+    equipPulse = Math.max(0, equipPulse - dt * 2.15);
+    previewNumber.scale.setScalar(1 + Math.sin((1 - equipPulse) * Math.PI) * 0.16);
+  } else {
+    previewNumber.scale.setScalar(1);
+  }
+
+  const color = studioColorScratch.set(numberStyle.primary);
+  const showAura = numberStyle.glow || numberStyle.material === 'neon';
+  studioAura.visible = showAura;
+  if (showAura) {
+    const neonAura = numberStyle.material === 'neon';
+    for (let i = 0; i < studioAura.children.length; i++) {
+      const ring = studioAura.children[i];
+      ring.material.color.copy(color).multiplyScalar(neonAura ? 0.82 : 1.08);
+      const baseOpacity = neonAura ? 0.065 : 0.12;
+      const pulseOpacity = neonAura ? 0.022 : 0.045;
+      ring.material.opacity = baseOpacity + Math.sin(elapsed * 2.4 + i * 1.7) * pulseOpacity;
+      const s = 1 + Math.sin(elapsed * 1.8 + i) * 0.045;
+      ring.scale.setScalar(s);
+      ring.rotation.z += dt * (i ? -0.16 : 0.12);
+    }
+  }
+
+  const showTrail = numberStyle.trail === 'sparkle';
+  studioTrail.visible = showTrail;
+  if (showTrail) {
+    trailT += dt;
+    if (trailT >= 0.07) {
+      trailT = 0;
+      spawnStudioTrailParticle();
+      spawnStudioTrailParticle();
+    }
+    studioTrailMaterial.color.copy(color).multiplyScalar(1.7);
+  }
+  for (let i = 0; i < studioTrailParticles.length; i++) {
+    const p = studioTrailParticles[i];
+    const j = i * 3;
+    if (showTrail && p.life > 0) {
+      p.life -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      studioTrailPositions[j] = p.x;
+      studioTrailPositions[j + 1] = p.y;
+      studioTrailPositions[j + 2] = p.z;
+    } else {
+      p.life = 0;
+      studioTrailPositions[j] = studioTrailPositions[j + 1] = studioTrailPositions[j + 2] = 999;
+    }
+  }
+  studioTrail.geometry.attributes.position.needsUpdate = true;
+}
+
+initStudioScene();
+
+function makePaletteDots(primary, secondary) {
+  const dots = document.createElement('span');
+  dots.className = 'palette-dots';
+  for (const color of [primary, secondary]) {
+    const dot = document.createElement('span');
+    dot.className = 'palette-dot';
+    dot.style.background = color;
+    dots.appendChild(dot);
+  }
+  return dots;
+}
+
+function applyPresetStyle(preset) {
+  markCosmeticSeen(preset.id);
+  Object.assign(numberStyle, preset.style);
+  applyNumberStyle(false);
+  renderCustomControls();
+}
+
+function createPresetCard(preset) {
+  const score = bestClassic();
+  const locked = score < preset.needs;
+  const selected = styleMatches(numberStyle, preset.style);
+  const isNew = !locked && !seenCosmetics.has(preset.id);
+  const el = document.createElement('button');
+  el.className = `chip preset-card${selected ? ' sel' : ''}${locked ? ' locked' : ''}`;
+  el.disabled = locked;
+  el.setAttribute('aria-pressed', String(selected));
+  el.setAttribute('aria-label', locked
+    ? `${preset.name} preset locked. ${score} of ${preset.needs} Classic score`
+    : `${preset.name} preset${selected ? ', selected' : ''}${isNew ? ', new' : ''}`);
+  const name = document.createElement('strong');
+  name.textContent = locked ? `🔒 ${preset.name}` : selected ? `✓ ${preset.name}` : preset.name;
+  const status = document.createElement('small');
+  status.textContent = locked
+    ? `${Math.min(score, preset.needs)} / ${preset.needs} Classic`
+    : selected ? 'Active preset' : preset.style.material;
+  el.append(name, status);
+  if (isNew) {
+    const badge = document.createElement('span');
+    badge.className = 'new-badge';
+    badge.textContent = 'NEW';
+    el.appendChild(badge);
+  }
+  el.addEventListener('click', () => applyPresetStyle(preset));
+  return el;
+}
+
+function renderStyleSummary() {
+  const summary = $('style-summary');
+  summary.innerHTML = '';
+  const preset = NUMBER_PRESETS.find(p => styleMatches(numberStyle, p.style));
+  const palette = COLOR_PALETTES.find(p => numberStyle.primary === p.primary && numberStyle.secondary === p.secondary);
+  const eyebrow = document.createElement('small');
+  eyebrow.textContent = 'CURRENT MIX';
+  const title = document.createElement('strong');
+  title.textContent = preset ? preset.name : `${palette?.name || 'Custom'} ${numberStyle.material}`;
+  const details = document.createElement('p');
+  const effects = [numberStyle.glow ? 'Glow' : '', numberStyle.trail === 'sparkle' ? 'Sparkle Trail' : ''].filter(Boolean);
+  details.textContent = `${palette?.name || 'Custom colors'} · ${numberStyle.material}${effects.length ? ` · ${effects.join(' + ')}` : ''}`;
+  summary.append(eyebrow, title, details);
+}
+
+function renderCollection() {
+  const score = bestClassic();
+  const owned = NUMBER_PRESETS.filter(p => score >= p.needs).length;
+  $('collection-progress').textContent = `${owned} / ${NUMBER_PRESETS.length} looks`;
+  $('collection-owned-label').textContent = `${owned} owned`;
+  $('collection-grid').innerHTML = '';
+  for (const preset of NUMBER_PRESETS) $('collection-grid').appendChild(createPresetCard(preset));
+
+  $('favorite-row').innerHTML = '';
+  if (!favoriteStyles.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-collection';
+    empty.textContent = 'Tap ♡ to save a favorite combination.';
+    $('favorite-row').appendChild(empty);
+  } else {
+    favoriteStyles.forEach((style, index) => {
+      const selected = styleMatches(numberStyle, style);
+      const card = document.createElement('button');
+      card.className = `chip favorite-card${selected ? ' sel' : ''}`;
+      card.setAttribute('aria-pressed', String(selected));
+      card.setAttribute('aria-label', `Favorite ${index + 1}${selected ? ', selected' : ''}`);
+      const text = document.createElement('span');
+      const title = document.createElement('strong');
+      title.textContent = selected ? `✓ Favorite ${index + 1}` : `Favorite ${index + 1}`;
+      const detail = document.createElement('small');
+      detail.textContent = style.material + (style.glow ? ' · glow' : '');
+      text.append(title, detail);
+      card.append(makePaletteDots(style.primary, style.secondary), text);
+      card.addEventListener('click', () => {
+        Object.assign(numberStyle, style);
+        applyNumberStyle(false);
+        renderCustomControls();
+      });
+      $('favorite-row').appendChild(card);
+    });
+  }
+
+  const favoriteIndex = currentFavoriteIndex();
+  const favoriteButton = $('custom-favorite');
+  favoriteButton.classList.toggle('sel', favoriteIndex >= 0);
+  favoriteButton.textContent = favoriteIndex >= 0 ? '♥' : '♡';
+  favoriteButton.setAttribute('aria-pressed', String(favoriteIndex >= 0));
+  favoriteButton.setAttribute('aria-label', favoriteIndex >= 0 ? 'Remove current style from favorites' : 'Add current style to favorites');
+
+  const newCount = NUMBER_PRESETS.filter(p => score >= p.needs && !seenCosmetics.has(p.id)).length;
+  const badge = $('looks-new-count');
+  badge.textContent = String(newCount);
+  badge.classList.toggle('visible', newCount > 0);
+}
+
+function renderCustomControls() {
+  for (const id of ['featured-row', 'preset-row', 'palette-row', 'primary-row', 'secondary-row', 'material-row', 'fx-row']) $(id).innerHTML = '';
+
+  renderStyleSummary();
+  const featuredPresets = NUMBER_PRESETS.filter(p => bestClassic() >= p.needs).slice(0, 3);
+  for (const preset of featuredPresets) $('featured-row').appendChild(createPresetCard(preset));
+  for (const preset of NUMBER_PRESETS) $('preset-row').appendChild(createPresetCard(preset));
+
+  for (const palette of COLOR_PALETTES) {
+    const selected = numberStyle.primary === palette.primary && numberStyle.secondary === palette.secondary;
+    const el = document.createElement('button');
+    el.className = `chip palette-card${selected ? ' sel' : ''}`;
+    el.setAttribute('aria-pressed', String(selected));
+    el.setAttribute('aria-label', `${palette.name} palette${selected ? ', selected' : ''}`);
+    const name = document.createElement('strong');
+    name.textContent = selected ? `✓ ${palette.name}` : palette.name;
+    el.append(makePaletteDots(palette.primary, palette.secondary), name);
+    el.addEventListener('click', () => {
+      numberStyle.primary = palette.primary;
+      numberStyle.secondary = palette.secondary;
+      applyNumberStyle(false);
+      renderCustomControls();
+    });
+    $('palette-row').appendChild(el);
+  }
+
+  for (const zone of [
+    { id: 'primary-row', key: 'primary', label: 'face' },
+    { id: 'secondary-row', key: 'secondary', label: 'edge' },
+  ]) {
+    for (const swatch of COLOR_SWATCHES) {
+      const selected = numberStyle[zone.key] === swatch.hex;
+      const el = document.createElement('button');
+      el.className = `swatch${selected ? ' sel' : ''}`;
+      el.style.background = swatch.hex;
+      el.title = `${swatch.name} ${zone.label}`;
+      el.setAttribute('aria-label', `${swatch.name} ${zone.label}${selected ? ', selected' : ''}`);
+      el.setAttribute('aria-pressed', String(selected));
+      el.addEventListener('click', () => {
+        numberStyle[zone.key] = swatch.hex;
+        applyNumberStyle(false);
+        renderCustomControls();
+      });
+      $(zone.id).appendChild(el);
+    }
+  }
+
+  for (const key of Object.keys(MATERIAL_TYPES)) {
+    const selected = numberStyle.material === key;
+    const el = document.createElement('button');
+    el.className = `chip material-card${selected ? ' sel' : ''}`;
+    el.dataset.material = key;
+    el.style.setProperty('--orb', numberStyle.primary);
+    el.setAttribute('aria-pressed', String(selected));
+    el.setAttribute('aria-label', `${key} material${selected ? ', selected' : ''}`);
+    const orb = document.createElement('span');
+    orb.className = 'material-orb';
+    const label = document.createElement('strong');
+    label.textContent = selected ? `✓ ${key.toUpperCase()}` : key.toUpperCase();
+    el.append(orb, label);
+    el.addEventListener('click', () => {
+      numberStyle.material = key;
+      applyNumberStyle(false);
+      renderCustomControls();
+    });
+    $('material-row').appendChild(el);
+  }
+
+  const effects = [
+    { label: 'GLOW', icon: '✦', selected: numberStyle.glow, toggle: () => { numberStyle.glow = !numberStyle.glow; } },
+    { label: 'SPARKLE TRAIL', icon: '⋆', selected: numberStyle.trail === 'sparkle', toggle: () => { numberStyle.trail = numberStyle.trail === 'sparkle' ? 'none' : 'sparkle'; } },
+  ];
+  for (const effect of effects) {
+    const el = document.createElement('button');
+    el.className = `chip effect-card${effect.selected ? ' sel' : ''}`;
+    el.setAttribute('aria-pressed', String(effect.selected));
+    el.setAttribute('aria-label', `${effect.label} effect, ${effect.selected ? 'on' : 'off'}`);
+    const icon = document.createElement('span');
+    icon.className = 'effect-icon';
+    icon.textContent = effect.icon;
+    const label = document.createElement('strong');
+    label.textContent = effect.selected ? `✓ ${effect.label}` : effect.label;
+    el.append(icon, label);
+    el.addEventListener('click', () => {
+      effect.toggle();
+      applyNumberStyle(false);
+      renderCustomControls();
+    });
+    $('fx-row').appendChild(el);
+  }
+
+  renderCollection();
+}
+
+function randomizeCustomize() {
+  const palettes = COLOR_PALETTES;
+  const materials = Object.keys(MATERIAL_TYPES);
+  const palette = palettes[Math.floor(Math.random() * palettes.length)];
+  numberStyle.primary = palette.primary;
+  numberStyle.secondary = palette.secondary;
+  numberStyle.material = materials[Math.floor(Math.random() * materials.length)];
+  numberStyle.glow = Math.random() < 0.38;
+  numberStyle.trail = Math.random() < 0.34 ? 'sparkle' : 'none';
+  previewSpin = 0.52;
+  previewView = null;
+  applyNumberStyle(false);
+  renderCustomControls();
+  updatePreviewToolState();
+  const button = $('custom-randomize');
+  button.classList.remove('rolling');
+  void button.offsetWidth;
+  button.classList.add('rolling');
+}
+
+function toggleCurrentFavorite() {
+  const index = currentFavoriteIndex();
+  if (index >= 0) {
+    favoriteStyles.splice(index, 1);
+  } else {
+    favoriteStyles.unshift({ ...numberStyle });
+    favoriteStyles = favoriteStyles.slice(0, 8);
+  }
+  saveFavorites();
+  renderCustomControls();
+}
+
+function openCustomize() {
+  if (!font || game.state !== 'menu') return;
+  customOriginalStyle = { ...numberStyle };
+  customApplying = false;
+  equipPulse = 0;
+  game.state = 'custom';
+  menuScreen.classList.add('hidden');
+  customScreen.classList.add('visible');
+  player.visible = false;
+  blob.visible = false;
+  previewNumber = makeNumberGroup(font, '42', playerMats, NUMBER_SIZE);
+  previewNumber.position.set(0, 0.35, 0);
+  studioStage.add(previewNumber);
+  renderPass.scene = studioScene;
+  renderPass.camera = studioCamera;
+  resetPreviewView();
+  setPreviewLighting(previewLighting);
+  clearStudioTrail();
+  $('advanced-colors').open = false;
+  $('custom-apply').textContent = 'APPLY';
+  $('custom-apply').disabled = false;
+  $('custom-cancel').disabled = false;
+  $('custom-reset').disabled = false;
+  switchCustomTab('featured');
+  renderCustomControls();
+  showUnlockCelebration();
+}
+
+function closeCustomize() {
+  customScreen.classList.remove('visible');
+  customScreen.classList.remove('equipping');
+  $('unlock-celebration').classList.remove('show');
+  if (previewNumber) {
+    studioStage.remove(previewNumber);
+    previewNumber.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    previewNumber = null;
+  }
+  clearStudioTrail();
+  studioAura.visible = false;
+  renderPass.scene = scene;
+  renderPass.camera = camera;
+  bloomPass.strength = 0.55;
+  game.state = 'menu';
+  player.visible = true;
+  blob.visible = true;
+  menuScreen.classList.remove('hidden');
+}
+
+function applyCustomize() {
+  if (customApplying) return;
+  customApplying = true;
+  applyNumberStyle(true);
+  const activePreset = NUMBER_PRESETS.find(p => styleMatches(numberStyle, p.style));
+  if (activePreset) markCosmeticSeen(activePreset.id);
+  customOriginalStyle = null;
+  equipPulse = 1;
+  customScreen.classList.add('equipping');
+  $('custom-apply').textContent = 'EQUIPPED ✓';
+  $('custom-apply').disabled = true;
+  $('custom-cancel').disabled = true;
+  $('custom-reset').disabled = true;
+  setTimeout(() => {
+    customApplying = false;
+    closeCustomize();
+  }, 540);
+}
+
+function cancelCustomize() {
+  if (customApplying) return;
+  if (customOriginalStyle) Object.assign(numberStyle, customOriginalStyle);
+  applyNumberStyle(false);
+  customOriginalStyle = null;
+  closeCustomize();
+}
+
+function resetCustomize() {
+  if (customApplying) return;
+  Object.assign(numberStyle, DEFAULT_NUMBER_STYLE);
+  applyNumberStyle(false);
+  renderCustomControls();
+}
+
+$('customize-btn').addEventListener('click', openCustomize);
+$('custom-apply').addEventListener('click', applyCustomize);
+$('custom-cancel').addEventListener('click', cancelCustomize);
+$('custom-reset').addEventListener('click', resetCustomize);
+$('custom-randomize').addEventListener('click', randomizeCustomize);
+$('custom-favorite').addEventListener('click', toggleCurrentFavorite);
+for (const tab of document.querySelectorAll('[data-custom-tab]')) {
+  tab.addEventListener('click', () => switchCustomTab(tab.dataset.customTab));
+  tab.addEventListener('keydown', event => {
+    const tabs = [...document.querySelectorAll('[data-custom-tab]')];
+    const current = tabs.indexOf(tab);
+    let next = current;
+    if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    switchCustomTab(tabs[next].dataset.customTab);
+    tabs[next].focus();
+  });
+}
+
+let previewDragging = false;
+let previewLastX = 0;
+let previewLastY = 0;
+canvas.addEventListener('pointerdown', e => {
+  if (game.state === 'custom') {
+    previewDragging = true;
+    previewLastX = e.clientX;
+    previewLastY = e.clientY;
+    previewSpin = 0;
+    previewView = null;
+    updatePreviewToolState();
+    canvas.setPointerCapture?.(e.pointerId);
+  }
+});
+window.addEventListener('pointermove', e => {
+  if (previewDragging && previewNumber) {
+    previewYaw += (e.clientX - previewLastX) * 0.012;
+    previewPitch = THREE.MathUtils.clamp(previewPitch + (e.clientY - previewLastY) * 0.007, -0.42, 0.42);
+    previewLastX = e.clientX;
+    previewLastY = e.clientY;
+  }
+});
+window.addEventListener('pointerup', e => {
+  if (!previewDragging) return;
+  previewDragging = false;
+  canvas.releasePointerCapture?.(e.pointerId);
+});
+canvas.addEventListener('wheel', e => {
+  if (game.state !== 'custom') return;
+  e.preventDefault();
+  changePreviewZoom(e.deltaY > 0 ? -0.08 : 0.08);
+}, { passive: false });
+
+$('light-studio').addEventListener('click', () => setPreviewLighting('studio'));
+$('light-game').addEventListener('click', () => setPreviewLighting('game'));
+$('view-front').addEventListener('click', () => setPreviewView('front'));
+$('view-angle').addEventListener('click', () => setPreviewView('angle'));
+$('view-side').addEventListener('click', () => setPreviewView('side'));
+$('view-zoom-out').addEventListener('click', () => changePreviewZoom(-0.1));
+$('view-zoom-in').addEventListener('click', () => changePreviewZoom(0.1));
+$('view-reset').addEventListener('click', resetPreviewView);
+
 // ----- Main loop ------------------------------------------------------------------------
 const clock = new THREE.Clock();
 const bubblePos = new THREE.Vector3(); // scratch for the equation speech bubble
@@ -1584,6 +2438,15 @@ function animate() {
   // Slow Time power-up: the whole world drops into bullet-time
   if (game.slowTimer > 0) game.slowTimer = Math.max(0, game.slowTimer - dt);
   const factor = game.slowTimer > 0 ? SLOW_FACTOR : 1;
+
+  // The customization studio renders its own lightweight scene. Returning here
+  // freezes the runway, wildlife, shadows, particles, and game simulation while
+  // the player compares cosmetics.
+  if (game.state === 'custom') {
+    updateStudioPreview(dt);
+    composer.render();
+    return;
+  }
 
   // scrolling track + treadmill world sell forward motion
   const running = game.state === 'playing' || game.state === 'between';
@@ -1739,6 +2602,19 @@ function animate() {
     player.scale.setScalar(s);
   } else {
     player.scale.setScalar(1);
+  }
+
+  // sparkle trail streams behind the number during runs
+  if (game.state === 'playing' && numberStyle.trail === 'sparkle') {
+    trailT += dt;
+    if (trailT > 0.13) {
+      trailT = 0;
+      spawnBurst(
+        new THREE.Vector3(player.position.x + (Math.random() - 0.5), player.position.y + (Math.random() - 0.5) * 1.4, player.position.z + 1.3),
+        parseInt(numberStyle.primary.slice(1), 16),
+        2, 1.6
+      );
+    }
   }
 
   // conveyor: active wall + queue advance together
