@@ -948,6 +948,9 @@ const MATERIAL_TYPES = {
   crystal:{ roughness: 0.08, metalness: 0,    clearcoat: 1,   opacity: 0.75, iridescence: 0 },
   neon:   { roughness: 0.52, metalness: 0,    clearcoat: 0.12,opacity: 1,    iridescence: 0 },
   holo:   { roughness: 0.25, metalness: 0.7,  clearcoat: 0.6, opacity: 1,    iridescence: 1 },
+  obsidian:{roughness: 0.18, metalness: 0.72, clearcoat: 0.9, opacity: 1,    iridescence: 0, unlock: 'boss_breaker' },
+  prismatic:{roughness:0.16, metalness: 0.48, clearcoat: 1,   opacity: 1,    iridescence: 1, unlock: 'combo_master' },
+  masterwork:{roughness:0.2, metalness: 0.84, clearcoat: 1,   opacity: 1,    iridescence: 0.65, unlock: 'collection_complete' },
 };
 const NUMBER_PRESETS = [
   { id: 'classic',  name: 'Classic',  needs: 0,   style: { primary: '#2f6bff', secondary: '#2456d9', material: 'glossy',  glow: false, trail: 'none' } },
@@ -969,7 +972,86 @@ const COLOR_PALETTES = [
   { id: 'candy',    name: 'Candy',    primary: '#ff5f8f', secondary: '#d83e70' },
   { id: 'frost',    name: 'Frost',    primary: '#f2f5ff', secondary: '#b9c3d8' },
   { id: 'midnight', name: 'Midnight', primary: '#2b3a55', secondary: '#141d33' },
+  { id: 'victory',  name: 'Victory',  primary: '#ff9f43', secondary: '#d9652b', unlock: 'first_steps' },
+  { id: 'focus',    name: 'Focus',    primary: '#53d8c8', secondary: '#237f86', unlock: 'perfect_form' },
+  { id: 'velocity', name: 'Velocity', primary: '#ff4f81', secondary: '#713cff', unlock: 'time_ace' },
+  { id: 'daybreak', name: 'Daybreak', primary: '#ffca6a', secondary: '#ee77a8', unlock: 'daily_devotee' },
+  { id: 'scholar',  name: 'Scholar',  primary: '#6f7bf7', secondary: '#302d76', unlock: 'classic_scholar' },
+  { id: 'champion', name: 'Champion', primary: '#ffe27a', secondary: '#8b5a20', unlock: 'wall_legend' },
 ];
+const TRAIL_TYPES = {
+  none:     { name: 'None', icon: '○' },
+  sparkle:  { name: 'Sparkle Trail', icon: '⋆' },
+  runic:    { name: 'Runic Trail', icon: '◇', unlock: 'perfect_form' },
+  comet:    { name: 'Comet Trail', icon: '☄', unlock: 'time_ace' },
+  starfall: { name: 'Starfall Trail', icon: '✦', unlock: 'daily_devotee' },
+};
+
+const PROGRESSION_DEFAULTS = Object.freeze({
+  totalSolved: 0,
+  perfects: 0,
+  bosses: 0,
+  maxCombo: 0,
+  dailyCompletes: 0,
+  runs: { classic: 0, time: 0, daily: 0 },
+  completedDailyDates: [],
+});
+
+function loadProgressionStats() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mathwall-progression') || '{}');
+    const safeNumber = (value, fallback = 0) => Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : fallback;
+    return {
+      totalSolved: safeNumber(saved.totalSolved),
+      perfects: safeNumber(saved.perfects),
+      bosses: safeNumber(saved.bosses),
+      maxCombo: safeNumber(saved.maxCombo),
+      dailyCompletes: safeNumber(saved.dailyCompletes),
+      runs: {
+        classic: safeNumber(saved.runs?.classic),
+        time: safeNumber(saved.runs?.time),
+        daily: safeNumber(saved.runs?.daily),
+      },
+      completedDailyDates: Array.isArray(saved.completedDailyDates)
+        ? saved.completedDailyDates.filter(value => typeof value === 'string').slice(-60)
+        : [],
+    };
+  } catch {
+    return { ...PROGRESSION_DEFAULTS, runs: { ...PROGRESSION_DEFAULTS.runs }, completedDailyDates: [] };
+  }
+}
+
+const progressionStats = loadProgressionStats();
+const ACHIEVEMENTS = [
+  { id: 'first_steps', name: 'First Steps', description: 'Clear 10 walls in any mode.', metric: 'totalSolved', target: 10, icon: 'Ⅰ', reward: 'Victory palette' },
+  { id: 'perfect_form', name: 'Perfect Form', description: 'Pass 25 walls with perfect timing.', metric: 'perfects', target: 25, icon: '◎', reward: 'Focus palette + Runic Trail' },
+  { id: 'boss_breaker', name: 'Boss Breaker', description: 'Defeat 5 boss walls.', metric: 'bosses', target: 5, icon: '◆', reward: 'Obsidian material' },
+  { id: 'combo_master', name: 'Combo Master', description: 'Reach an 8-wall combo.', metric: 'maxCombo', target: 8, icon: '×8', reward: 'Prismatic material' },
+  { id: 'time_ace', name: 'Time Ace', description: 'Score 250 in Time Attack.', metric: 'bestTime', target: 250, icon: '⏱', reward: 'Velocity palette + Comet Trail' },
+  { id: 'daily_devotee', name: 'Daily Devotee', description: 'Complete 3 different Daily Challenges.', metric: 'dailyCompletes', target: 3, icon: '☀', reward: 'Daybreak palette + Starfall Trail' },
+  { id: 'classic_scholar', name: 'Classic Scholar', description: 'Score 800 in Classic mode.', metric: 'bestClassic', target: 800, icon: '∑', reward: 'Scholar palette' },
+  { id: 'wall_legend', name: 'Wall Legend', description: 'Clear 100 walls across all modes.', metric: 'totalSolved', target: 100, icon: '★', reward: 'Champion palette' },
+];
+
+function achievementValue(achievement) {
+  if (achievement.metric === 'bestTime') return Number(localStorage.getItem('mathwall-best-time') || 0);
+  if (achievement.metric === 'bestClassic') return Number(localStorage.getItem('mathwall-best-classic') || 0);
+  return Number(progressionStats[achievement.metric] || 0);
+}
+
+function achievementComplete(id) {
+  if (id === 'collection_complete') return ACHIEVEMENTS.every(item => achievementValue(item) >= item.target);
+  const achievement = ACHIEVEMENTS.find(item => item.id === id);
+  return achievement ? achievementValue(achievement) >= achievement.target : true;
+}
+
+function saveProgressionStats() {
+  localStorage.setItem('mathwall-progression', JSON.stringify(progressionStats));
+}
+
+function componentOwned(component) {
+  return !component.unlock || achievementComplete(component.unlock);
+}
 const COLOR_SWATCHES = [
   { name: 'Ocean Blue', hex: '#2f6bff' }, { name: 'Deep Blue', hex: '#2456d9' },
   { name: 'Coral', hex: '#ff7a59' },      { name: 'Mint', hex: '#3ecf8e' },
@@ -988,7 +1070,7 @@ function loadNumberStyle() {
       secondary: validColor(saved.secondary) ? saved.secondary : DEFAULT_NUMBER_STYLE.secondary,
       material: MATERIAL_TYPES[saved.material] ? saved.material : DEFAULT_NUMBER_STYLE.material,
       glow: typeof saved.glow === 'boolean' ? saved.glow : DEFAULT_NUMBER_STYLE.glow,
-      trail: saved.trail === 'sparkle' ? 'sparkle' : 'none',
+      trail: TRAIL_TYPES[saved.trail] ? saved.trail : 'none',
     };
   } catch {
     return { ...DEFAULT_NUMBER_STYLE };
@@ -1534,6 +1616,13 @@ function onWallReached() {
     if (perfect) gained += PERFECT_BONUS;
     game.score += gained;
     game.solved += 1;
+    progressionStats.totalSolved += 1;
+    progressionStats.maxCombo = Math.max(progressionStats.maxCombo, game.combo);
+    if (perfect) progressionStats.perfects += 1;
+    if (wall.boss) progressionStats.bosses += 1;
+    saveProgressionStats();
+    const progressionUnlocks = syncProgressionUnlocks();
+    if (progressionUnlocks.length) setTimeout(() => showBanner('COSMETIC UNLOCKED!'), 260);
     if (perfect) {
       sfx.perfect();
       perfectPop.textContent = `PERFECT! +${PERFECT_BONUS}`;
@@ -1605,6 +1694,8 @@ function startGame(mode) {
   ensureAudio();
   game.mode = mode;
   game.rng = mode === 'daily' ? seededRandom(todayKey()) : Math.random;
+  progressionStats.runs[mode] += 1;
+  saveProgressionStats();
   game.score = 0;
   game.combo = 0;
   game.lives = 3;
@@ -1641,10 +1732,19 @@ function endGame(reason) {
   powersBar.classList.remove('visible');
   const best = Math.max(game.score, Number(localStorage.getItem(bestKey()) || 0));
   localStorage.setItem(bestKey(), String(best));
+  if (reason === 'complete' && game.mode === 'daily' && !progressionStats.completedDailyDates.includes(todayKey())) {
+    progressionStats.completedDailyDates.push(todayKey());
+    progressionStats.completedDailyDates = progressionStats.completedDailyDates.slice(-60);
+    progressionStats.dailyCompletes += 1;
+  }
+  saveProgressionStats();
+  const endGameUnlocks = syncProgressionUnlocks();
   $('gameover-title').textContent =
     reason === 'complete' ? 'DAILY COMPLETE!' : reason === 'time' ? "TIME'S UP!" : 'CRASHED!';
   $('final-score').textContent = `Score: ${game.score}`;
-  $('best-score').textContent = `Best: ${best}`;
+  $('best-score').textContent = endGameUnlocks.length
+    ? `Best: ${best} · ${endGameUnlocks.length} cosmetic reward${endGameUnlocks.length === 1 ? '' : 's'} unlocked!`
+    : `Best: ${best}`;
   gameoverScreen.classList.remove('hidden');
   refreshMenuBests();
 }
@@ -1717,12 +1817,36 @@ function readStoredArray(key, fallback = []) {
 function validFavoriteStyle(style) {
   return style && typeof style.primary === 'string' && typeof style.secondary === 'string' &&
     Boolean(MATERIAL_TYPES[style.material]) && typeof style.glow === 'boolean' &&
-    (style.trail === 'none' || style.trail === 'sparkle');
+    Boolean(TRAIL_TYPES[style.trail]);
 }
 
 let favoriteStyles = readStoredArray('mathwall-favorite-styles').filter(validFavoriteStyle).slice(0, 8);
 const seenCosmetics = new Set(readStoredArray('mathwall-cosmetics-seen', ['classic']));
 const knownUnlocks = new Set(readStoredArray('mathwall-known-unlocks', ['classic', 'gold', 'neon']));
+const unlockedAchievements = new Set(readStoredArray('mathwall-achievements-unlocked'));
+let pendingUnlockRewards = readStoredArray('mathwall-pending-unlock-rewards').filter(value => typeof value === 'string');
+
+function syncProgressionUnlocks() {
+  const newlyUnlocked = [];
+  for (const achievement of ACHIEVEMENTS) {
+    if (achievementComplete(achievement.id) && !unlockedAchievements.has(achievement.id)) {
+      unlockedAchievements.add(achievement.id);
+      newlyUnlocked.push(`${achievement.name} · ${achievement.reward}`);
+    }
+  }
+  if (achievementComplete('collection_complete') && !unlockedAchievements.has('collection_complete')) {
+    unlockedAchievements.add('collection_complete');
+    newlyUnlocked.push('Collection Complete · Masterwork material');
+  }
+  if (newlyUnlocked.length) {
+    pendingUnlockRewards = [...pendingUnlockRewards, ...newlyUnlocked].slice(-12);
+    localStorage.setItem('mathwall-achievements-unlocked', JSON.stringify([...unlockedAchievements]));
+    localStorage.setItem('mathwall-pending-unlock-rewards', JSON.stringify(pendingUnlockRewards));
+  }
+  return newlyUnlocked;
+}
+
+syncProgressionUnlocks();
 
 function saveFavorites() {
   localStorage.setItem('mathwall-favorite-styles', JSON.stringify(favoriteStyles));
@@ -1739,7 +1863,7 @@ function currentFavoriteIndex() {
 }
 
 function switchCustomTab(tab) {
-  const valid = ['featured', 'looks', 'colors', 'materials', 'effects', 'collection'];
+  const valid = ['featured', 'looks', 'colors', 'materials', 'effects', 'collection', 'progress'];
   customTab = valid.includes(tab) ? tab : 'featured';
   for (const button of document.querySelectorAll('[data-custom-tab]')) {
     const active = button.dataset.customTab === customTab;
@@ -1757,12 +1881,13 @@ function switchCustomTab(tab) {
 function showUnlockCelebration() {
   const score = bestClassic();
   const unlockedNow = NUMBER_PRESETS.filter(p => p.needs > 0 && score >= p.needs && !knownUnlocks.has(p.id));
-  if (!unlockedNow.length) return;
   for (const preset of unlockedNow) knownUnlocks.add(preset.id);
-  localStorage.setItem('mathwall-known-unlocks', JSON.stringify([...knownUnlocks]));
-  $('unlock-name').textContent = unlockedNow.length === 1
-    ? unlockedNow[0].name
-    : `${unlockedNow[0].name} + ${unlockedNow.length - 1} more`;
+  if (unlockedNow.length) localStorage.setItem('mathwall-known-unlocks', JSON.stringify([...knownUnlocks]));
+  const rewards = [...unlockedNow.map(preset => `${preset.name} look`), ...pendingUnlockRewards];
+  if (!rewards.length) return;
+  pendingUnlockRewards = [];
+  localStorage.setItem('mathwall-pending-unlock-rewards', '[]');
+  $('unlock-name').textContent = rewards.length === 1 ? rewards[0] : `${rewards[0]} + ${rewards.length - 1} more`;
   const celebration = $('unlock-celebration');
   celebration.classList.add('show');
   clearTimeout(unlockCelebrationTimer);
@@ -2004,16 +2129,22 @@ function updateStudioPreview(dt) {
     }
   }
 
-  const showTrail = numberStyle.trail === 'sparkle';
+  const showTrail = numberStyle.trail !== 'none';
   studioTrail.visible = showTrail;
   if (showTrail) {
+    const trailVisual = {
+      sparkle: { interval: 0.07, size: 0.16, color: numberStyle.primary, count: 2 },
+      runic: { interval: 0.1, size: 0.2, color: '#8d7cff', count: 1 },
+      comet: { interval: 0.045, size: 0.22, color: '#ff8a4c', count: 3 },
+      starfall: { interval: 0.085, size: 0.19, color: '#ffd76a', count: 2 },
+    }[numberStyle.trail] || { interval: 0.07, size: 0.16, color: numberStyle.primary, count: 2 };
     trailT += dt;
-    if (trailT >= 0.07) {
+    if (trailT >= trailVisual.interval) {
       trailT = 0;
-      spawnStudioTrailParticle();
-      spawnStudioTrailParticle();
+      for (let i = 0; i < trailVisual.count; i++) spawnStudioTrailParticle();
     }
-    studioTrailMaterial.color.copy(color).multiplyScalar(1.7);
+    studioTrailMaterial.color.set(trailVisual.color).multiplyScalar(1.35);
+    studioTrailMaterial.size = trailVisual.size;
   }
   for (let i = 0; i < studioTrailParticles.length; i++) {
     const p = studioTrailParticles[i];
@@ -2083,6 +2214,138 @@ function createPresetCard(preset) {
   return el;
 }
 
+function unlockProgress(unlockId) {
+  if (!unlockId) return { owned: true, value: 1, target: 1, label: 'Owned' };
+  if (unlockId === 'collection_complete') {
+    const complete = ACHIEVEMENTS.filter(item => achievementComplete(item.id)).length;
+    return { owned: complete === ACHIEVEMENTS.length, value: complete, target: ACHIEVEMENTS.length, label: `${complete} / ${ACHIEVEMENTS.length} achievements` };
+  }
+  const achievement = ACHIEVEMENTS.find(item => item.id === unlockId);
+  if (!achievement) return { owned: true, value: 1, target: 1, label: 'Owned' };
+  const value = achievementValue(achievement);
+  return {
+    owned: value >= achievement.target,
+    value,
+    target: achievement.target,
+    label: `${Math.min(value, achievement.target)} / ${achievement.target} · ${achievement.name}`,
+  };
+}
+
+function applyComponentLockState(element, component, label) {
+  const progress = unlockProgress(component.unlock);
+  if (progress.owned) return progress;
+  element.disabled = true;
+  element.classList.add('locked');
+  element.setAttribute('aria-label', `${label} locked. ${progress.label}`);
+  const copy = document.createElement('small');
+  copy.className = 'unlock-copy';
+  copy.textContent = `🔒 ${progress.label}`;
+  element.appendChild(copy);
+  return progress;
+}
+
+function cosmeticCollectionProgress() {
+  const score = bestClassic();
+  const presetOwned = NUMBER_PRESETS.filter(preset => score >= preset.needs).length;
+  const paletteOwned = COLOR_PALETTES.filter(componentOwned).length;
+  const materialEntries = Object.values(MATERIAL_TYPES);
+  const materialOwned = materialEntries.filter(componentOwned).length;
+  const trailEntries = Object.entries(TRAIL_TYPES).filter(([id]) => id !== 'none');
+  const trailOwned = trailEntries.filter(([, trail]) => componentOwned(trail)).length;
+  return {
+    owned: presetOwned + paletteOwned + materialOwned + trailOwned + 1,
+    total: NUMBER_PRESETS.length + COLOR_PALETTES.length + materialEntries.length + trailEntries.length + 1,
+  };
+}
+
+function renderProgression() {
+  const completed = ACHIEVEMENTS.filter(item => achievementComplete(item.id)).length;
+  const percent = Math.round((completed / ACHIEVEMENTS.length) * 100);
+  const collection = cosmeticCollectionProgress();
+  const overview = $('progress-overview');
+  overview.innerHTML = '';
+  const ring = document.createElement('div');
+  ring.className = 'progress-ring';
+  ring.style.setProperty('--progress', `${percent}%`);
+  ring.textContent = `${percent}%`;
+  const overviewCopy = document.createElement('div');
+  const eyebrow = document.createElement('small');
+  eyebrow.textContent = 'COLLECTION PROGRESS';
+  const title = document.createElement('strong');
+  title.textContent = `${collection.owned} / ${collection.total} cosmetics owned`;
+  const description = document.createElement('p');
+  description.textContent = `${completed} achievement${completed === 1 ? '' : 's'} complete · ${progressionStats.totalSolved} lifetime wall clears`;
+  overviewCopy.append(eyebrow, title, description);
+  overview.append(ring, overviewCopy);
+
+  $('mode-progress-row').innerHTML = '';
+  const modeRecords = [
+    { label: 'CLASSIC', value: Number(localStorage.getItem('mathwall-best-classic') || 0), runs: progressionStats.runs.classic },
+    { label: 'TIME', value: Number(localStorage.getItem('mathwall-best-time') || 0), runs: progressionStats.runs.time },
+    { label: 'DAILY', value: progressionStats.dailyCompletes, runs: progressionStats.runs.daily, suffix: ' clears' },
+  ];
+  for (const record of modeRecords) {
+    const card = document.createElement('div');
+    card.className = 'mode-progress-card';
+    const label = document.createElement('b');
+    label.textContent = record.label;
+    const value = document.createElement('strong');
+    value.textContent = `${record.value}${record.suffix || ' best'}`;
+    const runs = document.createElement('small');
+    runs.textContent = `${record.runs} run${record.runs === 1 ? '' : 's'}`;
+    card.append(label, value, runs);
+    $('mode-progress-row').appendChild(card);
+  }
+
+  $('achievement-count').textContent = `${completed} / ${ACHIEVEMENTS.length} complete`;
+  $('achievement-grid').innerHTML = '';
+  for (const achievement of ACHIEVEMENTS) {
+    const value = achievementValue(achievement);
+    const complete = value >= achievement.target;
+    const card = document.createElement('div');
+    card.className = `achievement-card${complete ? ' complete' : ''}`;
+    const icon = document.createElement('div');
+    icon.className = 'achievement-icon';
+    icon.textContent = complete ? '✓' : achievement.icon;
+    const copy = document.createElement('div');
+    copy.className = 'achievement-copy';
+    const name = document.createElement('strong');
+    name.textContent = achievement.name;
+    const description = document.createElement('small');
+    description.textContent = achievement.description;
+    const reward = document.createElement('span');
+    reward.className = 'achievement-reward';
+    reward.textContent = complete ? `UNLOCKED · ${achievement.reward}` : `REWARD · ${achievement.reward}`;
+    const bar = document.createElement('div');
+    bar.className = 'mini-progress';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.min(100, (value / achievement.target) * 100)}%`;
+    bar.appendChild(fill);
+    copy.append(name, description, reward, bar);
+    const count = document.createElement('div');
+    count.className = 'achievement-count';
+    count.textContent = complete ? 'DONE' : `${Math.min(value, achievement.target)} / ${achievement.target}`;
+    card.append(icon, copy, count);
+    $('achievement-grid').appendChild(card);
+  }
+
+  const completion = $('completion-reward');
+  const collectionComplete = completed === ACHIEVEMENTS.length;
+  completion.innerHTML = '';
+  const completionTitle = document.createElement('strong');
+  completionTitle.textContent = collectionComplete ? '✓ MASTERWORK MATERIAL UNLOCKED' : '♛ COLLECTION COMPLETION REWARD';
+  const completionCopy = document.createElement('p');
+  completionCopy.textContent = collectionComplete
+    ? 'Your mastery reward is available in the Material category.'
+    : `Complete all achievement tracks to earn the exclusive Masterwork material. ${completed} / ${ACHIEVEMENTS.length} complete.`;
+  const completionBar = document.createElement('div');
+  completionBar.className = 'mini-progress';
+  const completionFill = document.createElement('span');
+  completionFill.style.width = `${percent}%`;
+  completionBar.appendChild(completionFill);
+  completion.append(completionTitle, completionCopy, completionBar);
+}
+
 function renderStyleSummary() {
   const summary = $('style-summary');
   summary.innerHTML = '';
@@ -2093,7 +2356,7 @@ function renderStyleSummary() {
   const title = document.createElement('strong');
   title.textContent = preset ? preset.name : `${palette?.name || 'Custom'} ${numberStyle.material}`;
   const details = document.createElement('p');
-  const effects = [numberStyle.glow ? 'Glow' : '', numberStyle.trail === 'sparkle' ? 'Sparkle Trail' : ''].filter(Boolean);
+  const effects = [numberStyle.glow ? 'Glow' : '', numberStyle.trail !== 'none' ? TRAIL_TYPES[numberStyle.trail]?.name : ''].filter(Boolean);
   details.textContent = `${palette?.name || 'Custom colors'} · ${numberStyle.material}${effects.length ? ` · ${effects.join(' + ')}` : ''}`;
   summary.append(eyebrow, title, details);
 }
@@ -2101,7 +2364,8 @@ function renderStyleSummary() {
 function renderCollection() {
   const score = bestClassic();
   const owned = NUMBER_PRESETS.filter(p => score >= p.needs).length;
-  $('collection-progress').textContent = `${owned} / ${NUMBER_PRESETS.length} looks`;
+  const collection = cosmeticCollectionProgress();
+  $('collection-progress').textContent = `${collection.owned} / ${collection.total} items`;
   $('collection-owned-label').textContent = `${owned} owned`;
   $('collection-grid').innerHTML = '';
   for (const preset of NUMBER_PRESETS) $('collection-grid').appendChild(createPresetCard(preset));
@@ -2165,6 +2429,7 @@ function renderCustomControls() {
     const name = document.createElement('strong');
     name.textContent = selected ? `✓ ${palette.name}` : palette.name;
     el.append(makePaletteDots(palette.primary, palette.secondary), name);
+    applyComponentLockState(el, palette, `${palette.name} palette`);
     el.addEventListener('click', () => {
       numberStyle.primary = palette.primary;
       numberStyle.secondary = palette.secondary;
@@ -2196,6 +2461,7 @@ function renderCustomControls() {
   }
 
   for (const key of Object.keys(MATERIAL_TYPES)) {
+    const material = MATERIAL_TYPES[key];
     const selected = numberStyle.material === key;
     const el = document.createElement('button');
     el.className = `chip material-card${selected ? ' sel' : ''}`;
@@ -2208,6 +2474,7 @@ function renderCustomControls() {
     const label = document.createElement('strong');
     label.textContent = selected ? `✓ ${key.toUpperCase()}` : key.toUpperCase();
     el.append(orb, label);
+    applyComponentLockState(el, material, `${key} material`);
     el.addEventListener('click', () => {
       numberStyle.material = key;
       applyNumberStyle(false);
@@ -2217,8 +2484,14 @@ function renderCustomControls() {
   }
 
   const effects = [
-    { label: 'GLOW', icon: '✦', selected: numberStyle.glow, toggle: () => { numberStyle.glow = !numberStyle.glow; } },
-    { label: 'SPARKLE TRAIL', icon: '⋆', selected: numberStyle.trail === 'sparkle', toggle: () => { numberStyle.trail = numberStyle.trail === 'sparkle' ? 'none' : 'sparkle'; } },
+    { label: 'GLOW', icon: '✦', selected: numberStyle.glow, component: {}, toggle: () => { numberStyle.glow = !numberStyle.glow; } },
+    ...Object.entries(TRAIL_TYPES)
+      .filter(([id]) => id !== 'none')
+      .map(([id, trail]) => ({
+        label: trail.name.toUpperCase(), icon: trail.icon, component: trail,
+        selected: numberStyle.trail === id,
+        toggle: () => { numberStyle.trail = numberStyle.trail === id ? 'none' : id; },
+      })),
   ];
   for (const effect of effects) {
     const el = document.createElement('button');
@@ -2231,6 +2504,7 @@ function renderCustomControls() {
     const label = document.createElement('strong');
     label.textContent = effect.selected ? `✓ ${effect.label}` : effect.label;
     el.append(icon, label);
+    applyComponentLockState(el, effect.component, `${effect.label} effect`);
     el.addEventListener('click', () => {
       effect.toggle();
       applyNumberStyle(false);
@@ -2240,17 +2514,19 @@ function renderCustomControls() {
   }
 
   renderCollection();
+  renderProgression();
 }
 
 function randomizeCustomize() {
-  const palettes = COLOR_PALETTES;
-  const materials = Object.keys(MATERIAL_TYPES);
+  const palettes = COLOR_PALETTES.filter(componentOwned);
+  const materials = Object.keys(MATERIAL_TYPES).filter(key => componentOwned(MATERIAL_TYPES[key]));
+  const trails = Object.keys(TRAIL_TYPES).filter(key => componentOwned(TRAIL_TYPES[key]));
   const palette = palettes[Math.floor(Math.random() * palettes.length)];
   numberStyle.primary = palette.primary;
   numberStyle.secondary = palette.secondary;
   numberStyle.material = materials[Math.floor(Math.random() * materials.length)];
   numberStyle.glow = Math.random() < 0.38;
-  numberStyle.trail = Math.random() < 0.34 ? 'sparkle' : 'none';
+  numberStyle.trail = Math.random() < 0.34 ? trails[Math.floor(Math.random() * trails.length)] : 'none';
   previewSpin = 0.52;
   previewView = null;
   applyNumberStyle(false);
@@ -2604,15 +2880,21 @@ function animate() {
     player.scale.setScalar(1);
   }
 
-  // sparkle trail streams behind the number during runs
-  if (game.state === 'playing' && numberStyle.trail === 'sparkle') {
+  // Equipped cosmetic trails stream behind the number during runs.
+  if (game.state === 'playing' && numberStyle.trail !== 'none') {
+    const trailVisual = {
+      sparkle: { interval: 0.13, color: numberStyle.primary, count: 2, speed: 1.6 },
+      runic: { interval: 0.16, color: '#8d7cff', count: 2, speed: 1.25 },
+      comet: { interval: 0.08, color: '#ff8a4c', count: 3, speed: 2.15 },
+      starfall: { interval: 0.14, color: '#ffd76a', count: 3, speed: 1.45 },
+    }[numberStyle.trail];
     trailT += dt;
-    if (trailT > 0.13) {
+    if (trailT > trailVisual.interval) {
       trailT = 0;
       spawnBurst(
         new THREE.Vector3(player.position.x + (Math.random() - 0.5), player.position.y + (Math.random() - 0.5) * 1.4, player.position.z + 1.3),
-        parseInt(numberStyle.primary.slice(1), 16),
-        2, 1.6
+        parseInt(trailVisual.color.slice(1), 16),
+        trailVisual.count, trailVisual.speed
       );
     }
   }

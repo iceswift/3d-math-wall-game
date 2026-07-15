@@ -538,6 +538,13 @@
     box-shadow: inset 0 0 0 1px rgba(117,104,207,0.12);
   }
   .chip.locked { opacity: 0.58; cursor: not-allowed; }
+  .chip.locked { filter: saturate(0.55); }
+  .unlock-copy {
+    display: block;
+    margin-top: 3px;
+    font-size: 8px; line-height: 1.25; font-weight: 800;
+    color: #7568cf;
+  }
   .preset-card {
     position: relative;
     min-height: 68px;
@@ -573,6 +580,8 @@
   }
   .palette-dot + .palette-dot { margin-left: -7px; }
   .palette-card strong { overflow: hidden; text-overflow: ellipsis; }
+  .palette-card.locked { flex-wrap: wrap; min-height: 82px; }
+  .palette-card.locked .unlock-copy { width: 100%; }
   #advanced-colors { margin-top: 10px; }
   #advanced-colors summary {
     min-height: 44px;
@@ -594,7 +603,12 @@
   .material-card[data-material="crystal"] .material-orb { opacity: 0.62; box-shadow: inset 0 0 0 3px #fff, 0 4px 10px rgba(90,160,230,0.25); }
   .material-card[data-material="neon"] .material-orb { box-shadow: 0 0 14px var(--orb, #6dff75), inset 0 0 7px #fff; }
   .material-card[data-material="holo"] .material-orb { background: conic-gradient(#ff9acb, #8adfff, #bfa1ff, #ffef9b, #ff9acb); }
+  .material-card[data-material="obsidian"] .material-orb { background: radial-gradient(circle at 30% 25%, #8993b0, #252a3c 42%, #080a10 100%); }
+  .material-card[data-material="prismatic"] .material-orb { background: conic-gradient(#7afcff, #ff75ca, #ffe071, #8c7bff, #7afcff); }
+  .material-card[data-material="masterwork"] .material-orb { background: radial-gradient(circle at 30% 25%, #fffbd0, #f1be42 38%, #6e3b17 100%); box-shadow: 0 0 13px rgba(255,210,90,0.48), inset -4px -5px 8px rgba(70,35,10,0.25); }
   .effect-card { min-height: 68px; display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; }
+  .effect-card.locked { flex-wrap: wrap; min-height: 84px; }
+  .effect-card.locked .unlock-copy { width: 100%; }
   .effect-icon { font-size: 20px; }
   #fx-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #collection-grid, #favorite-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -610,6 +624,59 @@
     background: #f3f5fa; color: var(--ink); opacity: 0.65;
     text-align: center; font-size: 11px; font-weight: 700;
   }
+  .progress-overview {
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 14px; align-items: center;
+    padding: 15px; margin-bottom: 16px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #252f4a, #6356b8);
+    color: #fff;
+  }
+  .progress-ring {
+    width: 66px; height: 66px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: conic-gradient(#ffcf68 var(--progress, 0%), rgba(255,255,255,0.16) 0);
+    box-shadow: inset 0 0 0 7px rgba(25,31,54,0.42);
+    font-size: 14px; font-weight: 1000;
+  }
+  .progress-overview small { display: block; opacity: 0.72; font-size: 9px; font-weight: 900; letter-spacing: 1.4px; }
+  .progress-overview strong { display: block; margin: 3px 0; font-size: 17px; }
+  .progress-overview p { font-size: 10px; line-height: 1.4; opacity: 0.78; }
+  .mode-progress-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .mode-progress-card {
+    padding: 11px 9px; border-radius: 14px;
+    background: #eef1f8; color: var(--ink);
+  }
+  .mode-progress-card b { display: block; font-size: 9px; letter-spacing: 0.8px; color: #7568cf; }
+  .mode-progress-card strong { display: block; margin-top: 4px; font-size: 13px; }
+  .achievement-grid { display: grid; gap: 9px; }
+  .achievement-card {
+    display: grid; grid-template-columns: 38px 1fr auto;
+    gap: 10px; align-items: center;
+    padding: 11px; border-radius: 15px;
+    background: #f1f3f9; border: 1px solid rgba(43,58,85,0.08);
+  }
+  .achievement-card.complete { background: linear-gradient(135deg, #e8fbf1, #f0edff); border-color: rgba(62,207,142,0.35); }
+  .achievement-icon {
+    width: 38px; height: 38px; border-radius: 12px;
+    display: grid; place-items: center;
+    background: #dfe3f1; color: #5b50b5;
+    font-size: 13px; font-weight: 1000;
+  }
+  .achievement-card.complete .achievement-icon { background: #3ecf8e; color: #fff; }
+  .achievement-copy strong { display: block; font-size: 11px; }
+  .achievement-copy small { display: block; margin-top: 2px; font-size: 8px; line-height: 1.3; opacity: 0.58; }
+  .achievement-reward { display: block; margin-top: 4px; color: #7568cf; font-size: 8px; font-weight: 850; }
+  .achievement-count { min-width: 48px; text-align: right; font-size: 9px; font-weight: 900; color: var(--ink); }
+  .mini-progress { height: 5px; margin-top: 6px; overflow: hidden; border-radius: 4px; background: rgba(43,58,85,0.1); }
+  .mini-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7568cf, #ff5f8f); }
+  .completion-reward {
+    padding: 14px; border-radius: 17px;
+    border: 1px solid rgba(241,190,66,0.35);
+    background: linear-gradient(135deg, #fff8dc, #f2e9ff);
+  }
+  .completion-reward strong { display: block; font-size: 12px; }
+  .completion-reward p { margin: 4px 0 8px; font-size: 9px; line-height: 1.4; opacity: 0.65; }
   #unlock-celebration {
     pointer-events: none;
     position: absolute;
@@ -833,6 +900,7 @@
         <button class="custom-tab" data-custom-tab="materials" role="tab" aria-selected="false">MATERIAL</button>
         <button class="custom-tab" data-custom-tab="effects" role="tab" aria-selected="false">EFFECTS</button>
         <button class="custom-tab" data-custom-tab="collection" role="tab" aria-selected="false">COLLECTION</button>
+        <button class="custom-tab" data-custom-tab="progress" role="tab" aria-selected="false">PROGRESS</button>
       </nav>
       <div id="custom-scroll">
         <div class="custom-tab-panel active" data-custom-panel="featured" role="tabpanel">
@@ -879,6 +947,20 @@
           <section class="c-section">
             <div class="c-section-head"><b>FAVORITES</b><small>Saved combinations</small></div>
             <div id="favorite-row" class="c-grid"></div>
+          </section>
+        </div>
+        <div class="custom-tab-panel" data-custom-panel="progress" role="tabpanel">
+          <div id="progress-overview" class="progress-overview"></div>
+          <section class="c-section">
+            <div class="c-section-head"><b>MODE RECORDS</b><small>Best scores + runs</small></div>
+            <div id="mode-progress-row" class="mode-progress-grid"></div>
+          </section>
+          <section class="c-section">
+            <div class="c-section-head"><b>ACHIEVEMENTS</b><small id="achievement-count">0 / 8 complete</small></div>
+            <div id="achievement-grid" class="achievement-grid"></div>
+          </section>
+          <section class="c-section">
+            <div id="completion-reward" class="completion-reward"></div>
           </section>
         </div>
       </div>
