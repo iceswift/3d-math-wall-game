@@ -19,8 +19,8 @@ const PLAYER_Z = 0;
 const PLAYER_Y = 3.3; // high enough that the full glyph clears the bottom UI
 const BASE_SPEED = 14;
 const MAX_EXTRA_SPEED = 10;
-const BASE_TIME_BUDGET = 8.0;   // seconds to solve at wave 1
-const MIN_TIME_BUDGET = 4.5;
+const BASE_TIME_BUDGET = 9.5;   // gentler opening; complexity rises before reaction pressure
+const MIN_TIME_BUDGET = 5.0;
 const STEP_BONUS_TIME = 2.5;    // extra seconds per extra solution step
 const WAVE_SIZE = 5;            // walls per wave; the 5th is a boss
 const PERFECT_WINDOW = 0.3;     // matching in the last 30% of approach = PERFECT
@@ -31,6 +31,24 @@ const CRASH_TIME_PENALTY = 6;
 const QUEUE_AHEAD = 2;          // upcoming walls visible behind the active one
 const SLOW_FACTOR = 0.45;       // Slow Time power-up speed multiplier
 const SLOW_DURATION = 4;
+
+const ACCESSIBILITY_DEFAULTS = Object.freeze({
+  reducedMotion: false,
+  disableShake: false,
+  reducedEffects: false,
+  highContrast: false,
+  largeText: false,
+  haptics: false,
+});
+function loadAccessibilitySettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mathwall-accessibility') || '{}');
+    return Object.fromEntries(Object.keys(ACCESSIBILITY_DEFAULTS).map(key => [key, Boolean(saved[key])]));
+  } catch {
+    return { ...ACCESSIBILITY_DEFAULTS };
+  }
+}
+const accessibilitySettings = loadAccessibilitySettings();
 
 // ----- Palette --------------------------------------------------------------
 const COL = {
@@ -126,6 +144,10 @@ const bloomPass = new UnrealBloomPass(
 );
 composer.addPass(bloomPass);
 composer.addPass(new OutputPass());
+
+function setBloomStrength(value) {
+  bloomPass.strength = accessibilitySettings.reducedEffects ? Math.min(value, 0.16) : value;
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -293,7 +315,7 @@ floor.receiveShadow = true;
 scene.add(floor);
 
 // ----- Bright curbs along the lane edges -----------------------------------------
-const curbMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.1 });
+const curbMat = new THREE.MeshStandardMaterial({ color: 0xdfe6f1, roughness: 0.66, metalness: 0.02 });
 {
   const curbGeo = new THREE.BoxGeometry(0.55, 0.3, 440);
   for (const side of [-1, 1]) {
@@ -438,7 +460,7 @@ function buildEnvTile() {
 
   // pine groves: trunks + two canopy tiers as parallel instanced meshes,
   // planted in clusters so the forest reads as designed, not sprinkled
-  const TREES = 60;
+  const TREES = 48;
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.2, 1, 5), envMats.trunk, TREES);
   const lowerTier = new THREE.InstancedMesh(new THREE.ConeGeometry(1.15, 2.2, 6), envMats.canopy, TREES);
   const upperTier = new THREE.InstancedMesh(new THREE.ConeGeometry(0.8, 1.7, 6), envMats.canopy, TREES);
@@ -446,11 +468,11 @@ function buildEnvTile() {
   const col = new THREE.Color();
   const canopyShades = [0x86b892, 0x74a982, 0x93c49b, 0x7fae8a];
   let ti = 0;
-  for (let grove = 0; grove < 10 && ti < TREES; grove++) {
+  for (let grove = 0; grove < 8 && ti < TREES; grove++) {
     const side = grove % 2 === 0 ? 1 : -1;
     const gx = side * (21 + Math.random() * 44);
     const gz = -TILE_LEN / 2 + Math.random() * TILE_LEN;
-    const n = 4 + Math.floor(Math.random() * 5);
+    const n = 4 + Math.floor(Math.random() * 4);
     for (let k = 0; k < n && ti < TREES; k++) {
       const x = gx + (Math.random() - 0.5) * 11;
       if (Math.abs(x) < 17) continue; // never inside the lane corridor
@@ -484,7 +506,7 @@ function buildEnvTile() {
 
   // crystal formations jutting from the hills — the world grows the same
   // gem language as the number pieces, and they glow after dark
-  const CRYSTALS = 14;
+  const CRYSTALS = 10;
   const crysGeo = new THREE.OctahedronGeometry(1, 0);
   crysGeo.scale(0.6, 1.6, 0.6);
   const crystalsA = new THREE.InstancedMesh(crysGeo, envMats.crystalA, CRYSTALS / 2);
@@ -493,7 +515,7 @@ function buildEnvTile() {
   const p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), e = new THREE.Euler();
   for (let i = 0; i < CRYSTALS; i++) {
     const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (17 + Math.random() * 40);
+    const x = side * (22 + Math.random() * 38);
     const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
     const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
     const s = 0.9 + Math.random() * 1.7;
@@ -520,19 +542,19 @@ function buildEnvTile() {
     g.add(built.group);
     wildlife.push({ type, ...built, phase: Math.random() * 6 });
   };
-  for (let i = 0; i < 2; i++) {
+  for (let i = 0; i < 1; i++) {
     placeAnimal(buildDeer(wildlifeMats.deer, wildlifeMats.deerDark, 1.1 + Math.random() * 0.4, 0.5), 'deer', 19, 20);
     placeAnimal(buildFox(1.0 + Math.random() * 0.3), 'fox', 18, 16);
   }
   placeAnimal(buildDeer(wildlifeMats.crystalDeer, wildlifeMats.crystalDeer, 1.6, 0.85), 'cdeer', 18, 14);
 
   // grass tufts: dense near the track edges where the eye rests, thinning out
-  const TUFTS = 220;
+  const TUFTS = 160;
   const tufts = new THREE.InstancedMesh(new THREE.ConeGeometry(0.09, 0.6, 4), envMats.tuft, TUFTS);
   const tuftShades = [0x9fd3a0, 0x8cc490, 0xb2dfa8, 0x86b784];
   for (let i = 0; i < TUFTS; i++) {
     const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (7.5 + Math.pow(Math.random(), 1.7) * 30);
+    const x = side * (9.5 + Math.pow(Math.random(), 1.65) * 30);
     const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
     const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
     const s = 0.7 + Math.random() * 0.9;
@@ -544,12 +566,12 @@ function buildEnvTile() {
   g.add(tufts);
 
   // meadow flowers: sparse dots of color through the grass band
-  const FLOWERS = 60;
+  const FLOWERS = 42;
   const flowers = new THREE.InstancedMesh(new THREE.SphereGeometry(0.09, 6, 5), envMats.flower, FLOWERS);
   const petalShades = [0xfff6f8, 0xffd9e8, 0xfff3b8, 0xe8d9ff];
   for (let i = 0; i < FLOWERS; i++) {
     const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (8 + Math.random() * 32);
+    const x = side * (10 + Math.random() * 32);
     const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
     const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
     const s = 0.7 + Math.random() * 0.8;
@@ -561,11 +583,11 @@ function buildEnvTile() {
   g.add(flowers);
 
   // scattered boulders, half-sunk into the hills
-  const ROCKS = 8;
+  const ROCKS = 6;
   const rocks = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.5, 0), envMats.rock, ROCKS);
   for (let i = 0; i < ROCKS; i++) {
     const side = i % 2 === 0 ? 1 : -1;
-    const x = side * (10 + Math.random() * 34);
+    const x = side * (14 + Math.random() * 32);
     const zL = -TILE_LEN / 2 + Math.random() * TILE_LEN;
     const zz = ((zL + TILE_LEN / 2) % TILE_LEN + TILE_LEN) % TILE_LEN;
     p.set(x, -6.5 + terrainHeight(x, zz) + 0.15, zL);
@@ -936,6 +958,11 @@ loadFont().then(f => {
   font = f;
   setPlayerNumberVisual(game.current);
   cardPop = 0;
+  const tutorialStart = document.getElementById('tutorial-start');
+  if (tutorialStart) tutorialStart.disabled = false;
+  if (localStorage.getItem('mathwall-onboarding-seen') !== '1') {
+    document.getElementById('welcome-screen')?.classList.remove('hidden');
+  }
 });
 
 // ----- Number style: player-customizable materials (lobby CUSTOMIZE studio) ----
@@ -1170,6 +1197,7 @@ const hud = $('hud');
 const opsBar = $('ops');
 const powersBar = $('powers');
 const scoreVal = $('score-val');
+const comboChip = $('combo-chip');
 const waveChip = $('wave-chip');
 const waveFill = $('wave-fill');
 const livesChip = $('lives-chip');
@@ -1182,8 +1210,28 @@ const eqTarget = $('eq-target');
 const flash = $('flash');
 const menuScreen = $('menu-screen');
 const gameoverScreen = $('gameover-screen');
+const tutorialCoach = $('tutorial-coach');
+
+function saveAccessibilitySettings() {
+  localStorage.setItem('mathwall-accessibility', JSON.stringify(accessibilitySettings));
+}
+
+function applyAccessibilitySettings() {
+  document.body.classList.toggle('a11y-reduced-motion', accessibilitySettings.reducedMotion);
+  document.body.classList.toggle('a11y-high-contrast', accessibilitySettings.highContrast);
+  document.body.classList.toggle('a11y-large-text', accessibilitySettings.largeText);
+  setBloomStrength(game.state === 'custom' ? (previewLighting === 'studio' ? 0.68 : 0.55) : 0.55);
+  for (const input of document.querySelectorAll('[data-setting]')) {
+    input.checked = Boolean(accessibilitySettings[input.dataset.setting]);
+  }
+}
+
+function haptic(pattern) {
+  if (accessibilitySettings.haptics && navigator.vibrate) navigator.vibrate(pattern);
+}
 
 function flashScreen(color, strength = 0.5) {
+  if (accessibilitySettings.reducedEffects) strength *= 0.18;
   flash.style.background = color;
   flash.style.transition = 'none';
   flash.style.opacity = String(strength);
@@ -1193,10 +1241,22 @@ function flashScreen(color, strength = 0.5) {
   });
 }
 
-function showBanner(text, ms = 1400) {
+function showBanner(text, ms = 850) {
   waveBanner.textContent = text;
   waveBanner.classList.add('show');
   setTimeout(() => waveBanner.classList.remove('show'), ms);
+}
+
+const TUTORIAL_LESSONS = [
+  { current: 5, target: 7, expected: { sym: '+', val: 2 }, buttons: [{ sym: '+', val: 2 }, { sym: '−', val: 1 }, { sym: '+', val: 4 }, { sym: '−', val: 3 }], title: 'Match the target', copy: 'Your number is 5 and the target is 7. Choose +2 to make them match.' },
+  { current: 7, target: 14, expected: { sym: '×', val: 2 }, buttons: [{ sym: '×', val: 2 }, { sym: '+', val: 3 }, { sym: '−', val: 2 }, { sym: '×', val: 3 }], title: 'Use multiplication', copy: 'Operations change your number immediately. Choose ×2 to transform 7 into 14.' },
+  { current: 14, target: 10, expected: { sym: '−', val: 4 }, buttons: [{ sym: '−', val: 4 }, { sym: '+', val: 5 }, { sym: '÷', val: 2 }, { sym: '−', val: 2 }], title: 'Watch the wall', copy: 'The wall waits while you learn. Choose −4, then watch the safe green indicators.' },
+  { current: 10, target: 5, expected: { sym: '÷', val: 2 }, buttons: [{ sym: '÷', val: 2 }, { sym: '+', val: 4 }, { sym: '−', val: 3 }, { sym: '×', val: 2 }], title: 'Finish the lesson', copy: 'Choose ÷2. In normal play, solving later can earn a Perfect—but waiting too long risks a crash.' },
+];
+let practiceOptions = { level: 1, hints: true };
+
+function newRunStats() {
+  return { perfects: 0, maxCombo: 0, operations: 0, powers: 0, misses: 0, solveTime: 0, baseScore: 0, comboBonus: 0, perfectBonus: 0 };
 }
 
 // ----- Game state ----------------------------------------------------------------
@@ -1207,7 +1267,7 @@ const opHistory = []; // values before each press, for the Undo power-up
 
 const game = {
   state: 'menu', // menu | playing | between | gameover
-  mode: 'classic', // classic | time | daily
+  mode: 'classic', // classic | time | daily | practice | tutorial
   rng: Math.random,
   current: 8,
   target: 24,
@@ -1220,14 +1280,20 @@ const game = {
   spawnDist: 100,
   matchFrac: 1, // fraction of approach remaining when the match was made
   speed: BASE_SPEED,
+  startGrace: 0,
+  tutorialHold: false,
+  solutionStep: 0,
   betweenTimer: 0,
   shake: 0,
   lunge: 0,
+  successPulse: 0,
+  cameraKick: 0,
   knock: 0,
   dizzy: 0, // stunned wobble + orbiting stars after a crash
   paused: false,
   power: { slow: 2, undo: 2, skip: 1 },
   slowTimer: 0,
+  run: newRunStats(),
 };
 window.__game = game; // debug handle
 
@@ -1278,7 +1344,7 @@ function updatePeriod(flowDist) {
   timePhase = (timePhase + flowDist / PERIOD_DIST) % PERIODS.length;
   const i = Math.floor(timePhase);
   const j = (i + 1) % PERIODS.length;
-  const t = THREE.MathUtils.smoothstep(timePhase - i, 0.72, 1); // hold, then blend into next
+  const t = THREE.MathUtils.smoothstep(timePhase - i, 0.42, 1); // longer blend prevents compressed dusk/night color jumps
   const a = PERIODS[i], b = PERIODS[j];
   const L = (ka, kb) => THREE.MathUtils.lerp(ka, kb, t);
 
@@ -1348,10 +1414,10 @@ scene.fog.near = 110;
 scene.fog.far = 265;
 
 function waveAt(s) { return Math.floor(s / WAVE_SIZE) + 1; }
-function bossAt(s) { return game.mode !== 'daily' && s % WAVE_SIZE === WAVE_SIZE - 1; }
+function bossAt(s) { return game.mode !== 'daily' && game.mode !== 'tutorial' && s % WAVE_SIZE === WAVE_SIZE - 1; }
 function speedAt(w) { return BASE_SPEED + Math.min((w - 1) * 0.9, MAX_EXTRA_SPEED); }
 function budgetFor(puzzle, s) {
-  return Math.max(MIN_TIME_BUDGET, BASE_TIME_BUDGET - (waveAt(s) - 1) * 0.45)
+  return Math.max(MIN_TIME_BUDGET, BASE_TIME_BUDGET - (waveAt(s) - 1) * 0.38)
     + (puzzle.steps - 1) * STEP_BONUS_TIME
     + (bossAt(s) ? 1 : 0);
 }
@@ -1366,14 +1432,22 @@ function bestKey() {
 
 function updateHUD() {
   scoreVal.textContent = String(game.score);
-  if (game.mode === 'daily') {
+  if (game.mode === 'tutorial') {
+    waveChip.textContent = `LESSON ${Math.min(game.solved + 1, TUTORIAL_LESSONS.length)}/${TUTORIAL_LESSONS.length}`;
+    waveFill.style.width = `${Math.round((game.solved / TUTORIAL_LESSONS.length) * 100)}%`;
+  } else if (game.mode === 'practice') {
+    waveChip.textContent = `PRACTICE · LEVEL ${practiceOptions.level}`;
+    waveFill.style.width = `${Math.round(((game.solved % WAVE_SIZE) / WAVE_SIZE) * 100)}%`;
+  } else if (game.mode === 'daily') {
     waveChip.textContent = `WALL ${Math.min(game.solved + 1, DAILY_WALLS)}/${DAILY_WALLS}`;
     waveFill.style.width = `${Math.round((game.solved / DAILY_WALLS) * 100)}%`;
   } else {
     waveChip.textContent = `WAVE ${wave()}${isBossWall() ? ' · BOSS' : ''}`;
     waveFill.style.width = `${Math.round(((game.solved % WAVE_SIZE) / WAVE_SIZE) * 100)}%`;
   }
-  if (game.mode === 'time') {
+  if (game.mode === 'practice' || game.mode === 'tutorial') {
+    livesChip.textContent = '∞';
+  } else if (game.mode === 'time') {
     livesChip.textContent = `⏱ ${Math.max(Math.ceil(game.timeLeft), 0)}s`;
   } else {
     livesChip.textContent = '❤'.repeat(game.lives) + '♡'.repeat(3 - game.lives);
@@ -1381,6 +1455,8 @@ function updateHUD() {
   eqCurrent.textContent = String(game.current);
   eqTarget.textContent = String(game.target);
   const matched = game.current === game.target;
+  comboChip.textContent = `COMBO ×${Math.max(game.combo, 1)}`;
+  comboChip.classList.toggle('visible', game.combo >= 2);
   equation.classList.toggle('matched', matched);
   setWallMatchGlow(wall ? wall.obj : null, matched);
 }
@@ -1397,6 +1473,24 @@ function renderButtons() {
     opsBar.appendChild(btn);
   });
   refreshButtonStates();
+  updateButtonHints();
+}
+
+function updateButtonHints() {
+  for (const button of opsBar.children) button.classList.remove('hint');
+  if (game.mode !== 'practice' || !practiceOptions.hints || !wall?.puzzle.solution) return;
+  const expected = wall.puzzle.solution[Math.min(game.solutionStep, wall.puzzle.solution.length - 1)];
+  const index = game.buttons.findIndex(op => op.sym === expected?.sym && op.val === expected?.val);
+  if (index >= 0 && opsBar.children[index]) opsBar.children[index].classList.add('hint');
+}
+
+function updateTutorialCoach(correct = false) {
+  if (game.mode !== 'tutorial') { tutorialCoach.classList.add('hidden'); return; }
+  const lesson = TUTORIAL_LESSONS[Math.min(game.solved, TUTORIAL_LESSONS.length - 1)];
+  tutorialCoach.classList.remove('hidden');
+  $('tutorial-step').textContent = `LESSON ${Math.min(game.solved + 1, TUTORIAL_LESSONS.length)} / ${TUTORIAL_LESSONS.length}`;
+  $('tutorial-title').textContent = correct ? 'Correct — safe to pass!' : lesson.title;
+  $('tutorial-copy').textContent = correct ? 'The green equation and lane confirm the match. The next lesson begins after the wall passes.' : lesson.copy;
 }
 
 function refreshButtonStates() {
@@ -1420,20 +1514,38 @@ function pressOp(i) {
   if (game.state !== 'playing' || game.paused) return;
   const op = game.buttons[i];
   if (!op || !opValid(game.current, op)) return;
+  if (game.mode === 'tutorial') {
+    const expected = TUTORIAL_LESSONS[game.solved]?.expected;
+    if (!expected || op.sym !== expected.sym || op.val !== expected.val) {
+      tutorialCoach.classList.remove('wrong');
+      void tutorialCoach.offsetWidth;
+      tutorialCoach.classList.add('wrong');
+      $('tutorial-copy').textContent = `Try ${opLabel(expected)}. The tutorial wall will wait for the correct operation.`;
+      haptic(35);
+      return;
+    }
+    game.tutorialHold = false;
+  }
   ensureAudio();
   const wasMatched = game.current === game.target;
   opHistory.push(game.current);
   if (opHistory.length > 12) opHistory.shift();
   game.current = applyOp(game.current, op);
+  game.run.operations += 1;
+  const solutionOp = wall?.puzzle.solution?.[game.solutionStep];
+  if (solutionOp && op.sym === solutionOp.sym && op.val === solutionOp.val) game.solutionStep += 1;
   if (op.uses !== undefined) op.uses -= 1; // exotic ops are single-use per wall
   setPlayerNumberVisual(game.current);
   sfx.press();
+  haptic(12);
   floorFlash(0x8b7cf8);
   recordMatchTiming(wasMatched);
   const el = opsBar.children[i];
   if (el) { el.classList.add('pressed'); setTimeout(() => el.classList.remove('pressed'), 120); }
   refreshButtonStates();
+  updateButtonHints();
   updateHUD();
+  if (game.mode === 'tutorial' && game.current === game.target) updateTutorialCoach(true);
 }
 
 // ----- Power-ups ------------------------------------------------------------------
@@ -1445,8 +1557,12 @@ function updatePowerUI() {
 }
 
 function usePower(kind) {
-  if (game.state !== 'playing' || game.paused || game.power[kind] <= 0) return;
+  if (game.state !== 'playing' || game.paused || game.mode === 'tutorial' || game.power[kind] <= 0) return;
+  if (kind === 'undo' && !opHistory.length) return;
+  if (kind === 'skip' && !wall) return;
   ensureAudio();
+  game.run.powers += 1;
+  haptic(20);
   if (kind === 'slow') {
     game.power.slow -= 1;
     game.slowTimer = SLOW_DURATION;
@@ -1454,7 +1570,6 @@ function usePower(kind) {
     floorRipple(0x8fb7ff);
     sfx.slow();
   } else if (kind === 'undo') {
-    if (!opHistory.length) return;
     game.power.undo -= 1;
     const wasMatched = game.current === game.target;
     game.current = opHistory.pop();
@@ -1464,7 +1579,6 @@ function usePower(kind) {
     refreshButtonStates();
     updateHUD();
   } else if (kind === 'skip') {
-    if (!wall) return;
     game.power.skip -= 1;
     // safely blow up the incoming wall: no points, no heart lost, combo kept
     spawnWallDebris(wall.z, HOLE_Y, WALL_HEIGHT, wall.obj.tint);
@@ -1486,6 +1600,10 @@ $('pw-undo').addEventListener('click', () => usePower('undo'));
 $('pw-skip').addEventListener('click', () => usePower('skip'));
 
 window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.querySelector('.panel-screen:not(.hidden)')) {
+    closeMenuPanels();
+    return;
+  }
   if (game.state === 'custom' && e.key === 'Escape') {
     cancelCustomize();
     return;
@@ -1521,9 +1639,33 @@ function setPaused(p) {
 }
 
 $('pause-btn').addEventListener('click', () => setPaused(true));
-$('resume-btn').addEventListener('click', () => setPaused(false));
+let resumeCountdownActive = false;
+$('resume-btn').addEventListener('click', () => {
+  if (resumeCountdownActive) return;
+  resumeCountdownActive = true;
+  pauseScreen.classList.add('hidden');
+  const steps = accessibilitySettings.reducedMotion ? ['READY', 'GO'] : ['3', '2', '1', 'GO'];
+  const delay = accessibilitySettings.reducedMotion ? 350 : 520;
+  steps.forEach((step, index) => setTimeout(() => showBanner(step, delay - 40), index * delay));
+  setTimeout(() => {
+    resumeCountdownActive = false;
+    setPaused(false);
+  }, steps.length * delay);
+});
 soundBtn.addEventListener('click', () => { setMuted(!isMuted()); refreshSoundBtn(); });
+let quitArmed = false;
 $('quit-btn').addEventListener('click', () => {
+  if (!quitArmed && game.solved > 0) {
+    quitArmed = true;
+    $('quit-btn').textContent = 'QUIT? TAP AGAIN';
+    setTimeout(() => {
+      quitArmed = false;
+      $('quit-btn').textContent = 'QUIT TO MENU';
+    }, 2200);
+    return;
+  }
+  quitArmed = false;
+  $('quit-btn').textContent = 'QUIT TO MENU';
   game.paused = false;
   pauseScreen.classList.add('hidden');
   game.state = 'menu';
@@ -1531,14 +1673,27 @@ $('quit-btn').addEventListener('click', () => {
   hud.classList.remove('visible');
   opsBar.classList.remove('visible');
   powersBar.classList.remove('visible');
+  tutorialCoach.classList.add('hidden');
   refreshMenuBests();
   menuScreen.classList.remove('hidden');
 });
 
 // ----- Wall queue lifecycle ---------------------------------------------------------
 function makeEntry(value, s) {
+  if (game.mode === 'tutorial') {
+    const lesson = TUTORIAL_LESSONS[Math.min(s, TUTORIAL_LESSONS.length - 1)];
+    const puzzle = {
+      target: lesson.target,
+      buttons: lesson.buttons.map(op => ({ ...op })),
+      steps: 1,
+      solution: [{ ...lesson.expected }],
+    };
+    const obj = buildWall(font, puzzle.target, { boss: false, tint: WALL_TINTS[s % WALL_TINTS.length] });
+    return { obj, puzzle, solvedIndex: s, boss: false, z: 0 };
+  }
   const boss = bossAt(s);
-  const puzzle = makePuzzle(value, { wave: waveAt(s), boss, rng: game.rng });
+  const puzzleWave = game.mode === 'practice' ? practiceOptions.level : waveAt(s);
+  const puzzle = makePuzzle(value, { wave: puzzleWave, boss, rng: game.rng });
   const obj = buildWall(font, puzzle.target, { boss, tint: WALL_TINTS[s % WALL_TINTS.length] });
   return { obj, puzzle, solvedIndex: s, boss, z: 0 };
 }
@@ -1564,10 +1719,24 @@ function spawnWalls() {
   let value = game.current;
   let z = PLAYER_Z;
   const entries = [];
+  if (game.mode === 'tutorial') {
+    const lesson = TUTORIAL_LESSONS[Math.min(game.solved, TUTORIAL_LESSONS.length - 1)];
+    game.current = lesson.current;
+    setPlayerNumberVisual(game.current);
+    const entry = makeEntry(game.current, game.solved);
+    entry.z = PLAYER_Z - 48;
+    entry.obj.group.position.z = entry.z;
+    scene.add(entry.obj.group);
+    activate(entry);
+    game.state = 'playing';
+    return;
+  }
   for (let k = 0; k <= QUEUE_AHEAD; k++) {
     const s = game.solved + k;
     const e = makeEntry(value, s);
-    z -= speedAt(waveAt(s)) * budgetFor(e.puzzle, s);
+    z -= game.mode === 'practice'
+      ? speedAt(practiceOptions.level) * 0.62 * 11
+      : speedAt(waveAt(s)) * budgetFor(e.puzzle, s);
     e.z = z;
     e.obj.group.position.z = z;
     scene.add(e.obj.group);
@@ -1581,26 +1750,35 @@ function spawnWalls() {
 
 function activate(entry) {
   wall = entry;
+  entry.intro = 1;
   game.target = entry.puzzle.target;
   game.buttons = entry.puzzle.buttons;
   game.matchFrac = 1;
   game.spawnDist = Math.max(PLAYER_Z - entry.z, 1);
-  game.speed = speedAt(waveAt(entry.solvedIndex));
+  game.speed = game.mode === 'tutorial' ? 18
+    : game.mode === 'practice' ? speedAt(practiceOptions.level) * 0.62
+    : speedAt(waveAt(entry.solvedIndex));
+  game.solutionStep = 0;
+  entry.startedAt = elapsed;
+  game.tutorialHold = game.mode === 'tutorial';
   opHistory.length = 0;
-  if (entry.boss) { showBanner('BOSS WALL!'); sfx.boss(); }
+  if (entry.boss) { showBanner('BOSS WALL!', 1100); sfx.boss(); }
   else if (entry.solvedIndex > 0 && entry.solvedIndex % WAVE_SIZE === 0 && game.mode !== 'daily') {
     showBanner(`WAVE ${waveAt(entry.solvedIndex)}`);
     sfx.wave();
   }
   renderButtons();
   updateHUD();
+  if (game.mode === 'tutorial') updateTutorialCoach(false);
 }
 
 function extendQueue() {
   const tail = queue.length ? queue[queue.length - 1] : wall;
   const s = tail.solvedIndex + 1;
   const e = makeEntry(tail.puzzle.target, s);
-  e.z = tail.z - speedAt(waveAt(s)) * budgetFor(e.puzzle, s);
+  e.z = tail.z - (game.mode === 'practice'
+    ? speedAt(practiceOptions.level) * 0.62 * 11
+    : speedAt(waveAt(s)) * budgetFor(e.puzzle, s));
   e.obj.group.position.z = e.z;
   scene.add(e.obj.group);
   queue.push(e);
@@ -1612,17 +1790,27 @@ function onWallReached() {
     game.combo += 1;
     const base = wall.boss ? 25 : 10;
     const perfect = game.matchFrac <= PERFECT_WINDOW;
-    let gained = Math.round(base * (1 + (game.combo - 1) * 0.5));
-    if (perfect) gained += PERFECT_BONUS;
+    const comboBonus = Math.round(base * (game.combo - 1) * 0.5);
+    const perfectBonus = perfect ? PERFECT_BONUS : 0;
+    const gained = base + comboBonus + perfectBonus;
     game.score += gained;
     game.solved += 1;
-    progressionStats.totalSolved += 1;
-    progressionStats.maxCombo = Math.max(progressionStats.maxCombo, game.combo);
-    if (perfect) progressionStats.perfects += 1;
-    if (wall.boss) progressionStats.bosses += 1;
-    saveProgressionStats();
-    const progressionUnlocks = syncProgressionUnlocks();
-    if (progressionUnlocks.length) setTimeout(() => showBanner('COSMETIC UNLOCKED!'), 260);
+    game.run.perfects += perfect ? 1 : 0;
+    game.run.maxCombo = Math.max(game.run.maxCombo, game.combo);
+    game.run.solveTime += Math.max(0, elapsed - wall.startedAt);
+    game.run.baseScore += base;
+    game.run.comboBonus += comboBonus;
+    game.run.perfectBonus += perfectBonus;
+    const competitive = game.mode !== 'tutorial' && game.mode !== 'practice';
+    if (competitive) {
+      progressionStats.totalSolved += 1;
+      progressionStats.maxCombo = Math.max(progressionStats.maxCombo, game.combo);
+      if (perfect) progressionStats.perfects += 1;
+      if (wall.boss) progressionStats.bosses += 1;
+      saveProgressionStats();
+      const progressionUnlocks = syncProgressionUnlocks();
+      if (progressionUnlocks.length) setTimeout(() => showBanner('COSMETIC UNLOCKED!'), 260);
+    }
     if (perfect) {
       sfx.perfect();
       perfectPop.textContent = `PERFECT! +${PERFECT_BONUS}`;
@@ -1633,13 +1821,14 @@ function onWallReached() {
     }
     flashScreen('#3ecf8e', 0.25);
     floorRipple(perfect ? 0xffd166 : 0x3ecf8e); // gold ripple for a PERFECT
-    spawnBurst(new THREE.Vector3(0, HOLE_Y, PLAYER_Z), COL.good, 80, 11);
+    spawnBurst(new THREE.Vector3(0, HOLE_Y, PLAYER_Z), COL.good, accessibilitySettings.reducedEffects ? 22 : 80, 11);
     game.lunge = 1; // the number dives through the hole
-    if (game.combo >= 2) {
-      comboPop.textContent = `COMBO ×${game.combo}!`;
-      comboPop.classList.add('show');
-      setTimeout(() => comboPop.classList.remove('show'), 900);
-    }
+    game.successPulse = 1;
+    game.cameraKick = 1;
+    haptic(perfect ? [20, 30, 25] : 25);
+    comboPop.textContent = `+${gained}${game.combo >= 2 ? ` · COMBO ×${game.combo}` : ''}`;
+    comboPop.classList.add('show');
+    setTimeout(() => comboPop.classList.remove('show'), 900);
     if (wall.boss) {
       // bosses restock the power-ups
       for (const k of ['slow', 'undo', 'skip']) game.power[k] = Math.min(game.power[k] + 1, 3);
@@ -1647,6 +1836,18 @@ function onWallReached() {
     }
     passed.push(wall);
     wall = null;
+    if (game.mode === 'tutorial') {
+      updateHUD();
+      if (game.solved >= TUTORIAL_LESSONS.length) {
+        localStorage.setItem('mathwall-tutorial-complete', '1');
+        tutorialCoach.classList.add('hidden');
+        endGame('tutorial');
+      } else {
+        game.state = 'between';
+        game.betweenTimer = 0.7;
+      }
+      return;
+    }
     if (game.mode === 'daily' && game.solved >= DAILY_WALLS) {
       updateHUD();
       endGame('complete');
@@ -1657,13 +1858,15 @@ function onWallReached() {
   } else {
     // ---- CRASH ----
     game.combo = 0;
+    game.run.misses += 1;
     game.knock = 1; // the number bounces off the wall
     game.dizzy = 1; // ...then wobbles around seeing stars, cartoon-style
     sfx.fail();
     sfx.dizzy();
     floorCrack();
     flashScreen('#ff5a76', 0.45);
-    spawnBurst(player.position.clone(), COL.bad, 90, 13);
+    spawnBurst(player.position.clone(), COL.bad, accessibilitySettings.reducedEffects ? 26 : 90, 13);
+    haptic([35, 35, 45]);
     if (wall.boss) {
       // reinforced: it doesn't break — it barrels through and hits harder
       game.shake = 1.4;
@@ -1675,7 +1878,12 @@ function onWallReached() {
     }
     wall = null;
     clearQueue(); // the future assumed success; rebuild it from reality
-    if (game.mode === 'time') {
+    if (game.mode === 'practice') {
+      game.state = 'between';
+      game.betweenTimer = 1.35;
+      updateHUD();
+      return;
+    } else if (game.mode === 'time') {
       game.timeLeft -= CRASH_TIME_PENALTY;
       if (game.timeLeft <= 0) { updateHUD(); endGame('time'); return; }
     } else {
@@ -1694,12 +1902,15 @@ function startGame(mode) {
   ensureAudio();
   game.mode = mode;
   game.rng = mode === 'daily' ? seededRandom(todayKey()) : Math.random;
-  progressionStats.runs[mode] += 1;
-  saveProgressionStats();
+  if (mode !== 'tutorial' && mode !== 'practice') {
+    progressionStats.runs[mode] += 1;
+    saveProgressionStats();
+  }
   game.score = 0;
   game.combo = 0;
   game.lives = 3;
   game.solved = 0;
+  game.run = newRunStats();
   game.timeLeft = TIME_ATTACK_SECONDS;
   game.power = { slow: 2, undo: 2, skip: 1 };
   game.slowTimer = 0;
@@ -1707,20 +1918,30 @@ function startGame(mode) {
   game.dizzy = 0;
   game.knock = 0;
   game.lunge = 0;
+  game.successPulse = 0;
+  game.cameraKick = 0;
+  game.startGrace = mode === 'tutorial' ? 0 : mode === 'time' ? 0.5 : 1;
+  game.tutorialHold = false;
+  game.paused = false;
   clearFX();     // no leftover debris or particles from the previous run
   floorFx.length = 0; // and no lingering floor ripples/cracks
-  game.current = randStart(game.rng);
+  game.current = mode === 'tutorial' ? TUTORIAL_LESSONS[0].current : randStart(game.rng);
   setPlayerNumberVisual(game.current);
   cardPop = 0;
   menuScreen.classList.add('hidden');
   gameoverScreen.classList.add('hidden');
+  pauseScreen.classList.add('hidden');
+  for (const id of ['welcome-screen', 'help-screen', 'practice-screen', 'settings-screen']) $(id).classList.add('hidden');
   hud.classList.add('visible');
   opsBar.classList.add('visible');
-  powersBar.classList.add('visible');
+  powersBar.classList.toggle('visible', mode !== 'tutorial');
+  tutorialCoach.classList.toggle('hidden', mode !== 'tutorial');
+  if (mode === 'tutorial') localStorage.setItem('mathwall-onboarding-seen', '1');
   clearAllWalls();
   spawnWalls();
   updatePowerUI();
-  if (mode !== 'daily') { showBanner('WAVE 1'); sfx.wave(); }
+  if (mode === 'practice') showBanner('PRACTICE · NO PRESSURE');
+  else if (mode !== 'daily' && mode !== 'tutorial') { showBanner('WAVE 1'); sfx.wave(); }
 }
 window.__start = startGame; // debug handle
 
@@ -1730,7 +1951,30 @@ function endGame(reason) {
   hud.classList.remove('visible');
   opsBar.classList.remove('visible');
   powersBar.classList.remove('visible');
-  const best = Math.max(game.score, Number(localStorage.getItem(bestKey()) || 0));
+  tutorialCoach.classList.add('hidden');
+  const runSummary = $('run-summary');
+  const runInsight = $('run-insight');
+  const retryBtn = $('retry-btn');
+  const averageSolve = game.solved ? game.run.solveTime / game.solved : 0;
+  runSummary.innerHTML = [
+    ['Walls', game.solved],
+    ['Perfects', game.run.perfects],
+    ['Max combo', `×${game.run.maxCombo}`],
+    ['Avg. solve', game.solved ? `${averageSolve.toFixed(1)}s` : '—'],
+    ['Operations', game.run.operations],
+    ['Power-ups', game.run.powers],
+  ].map(([label, value]) => `<div class="run-stat"><small>${label}</small><strong>${value}</strong></div>`).join('');
+  if (reason === 'tutorial') {
+    $('gameover-title').textContent = 'TUTORIAL COMPLETE!';
+    $('final-score').textContent = "You're ready to play.";
+    $('best-score').textContent = 'Replay this lesson any time from How to Play.';
+    runInsight.textContent = 'Next: try Practice with hints, or begin a Classic run.';
+    retryBtn.textContent = 'REPLAY TUTORIAL';
+    gameoverScreen.classList.remove('hidden');
+    return;
+  }
+  const previousBest = Number(localStorage.getItem(bestKey()) || 0);
+  const best = Math.max(game.score, previousBest);
   localStorage.setItem(bestKey(), String(best));
   if (reason === 'complete' && game.mode === 'daily' && !progressionStats.completedDailyDates.includes(todayKey())) {
     progressionStats.completedDailyDates.push(todayKey());
@@ -1745,6 +1989,13 @@ function endGame(reason) {
   $('best-score').textContent = endGameUnlocks.length
     ? `Best: ${best} · ${endGameUnlocks.length} cosmetic reward${endGameUnlocks.length === 1 ? '' : 's'} unlocked!`
     : `Best: ${best}`;
+  const breakdown = `Base ${game.run.baseScore} · Combo +${game.run.comboBonus} · Perfect +${game.run.perfectBonus}`;
+  runInsight.textContent = game.score > previousBest
+    ? `NEW PERSONAL BEST · +${game.score - previousBest} · ${breakdown}`
+    : game.run.misses >= 2
+      ? `${breakdown} · Practice mode can help with the difficult operations.`
+      : breakdown;
+  retryBtn.textContent = 'RETRY';
   gameoverScreen.classList.remove('hidden');
   refreshMenuBests();
 }
@@ -1763,8 +2014,50 @@ $('play-daily').addEventListener('click', () => startGame('daily'));
 $('retry-btn').addEventListener('click', () => startGame(game.mode));
 $('menu-btn').addEventListener('click', () => {
   gameoverScreen.classList.add('hidden');
+  $('retry-btn').textContent = 'RETRY';
   menuScreen.classList.remove('hidden');
 });
+
+const menuPanels = ['welcome-screen', 'help-screen', 'practice-screen', 'settings-screen'];
+function openMenuPanel(id) {
+  for (const panelId of menuPanels) $(panelId).classList.toggle('hidden', panelId !== id);
+  menuScreen.classList.add('hidden');
+}
+function closeMenuPanels() {
+  for (const panelId of menuPanels) $(panelId).classList.add('hidden');
+  menuScreen.classList.remove('hidden');
+}
+
+$('play-practice').addEventListener('click', () => openMenuPanel('practice-screen'));
+$('help-btn').addEventListener('click', () => openMenuPanel('help-screen'));
+$('settings-btn').addEventListener('click', () => openMenuPanel('settings-screen'));
+$('help-close').addEventListener('click', closeMenuPanels);
+$('practice-close').addEventListener('click', closeMenuPanels);
+$('settings-close').addEventListener('click', closeMenuPanels);
+$('help-tutorial').addEventListener('click', () => startGame('tutorial'));
+$('tutorial-start').addEventListener('click', () => startGame('tutorial'));
+$('tutorial-skip').addEventListener('click', () => {
+  localStorage.setItem('mathwall-onboarding-seen', '1');
+  closeMenuPanels();
+});
+
+for (const button of document.querySelectorAll('[data-practice-level]')) {
+  button.addEventListener('click', () => {
+    practiceOptions.level = Number(button.dataset.practiceLevel);
+    for (const option of document.querySelectorAll('[data-practice-level]')) option.classList.toggle('sel', option === button);
+  });
+}
+$('practice-hints').addEventListener('change', event => { practiceOptions.hints = event.target.checked; });
+$('practice-start').addEventListener('click', () => startGame('practice'));
+
+for (const input of document.querySelectorAll('[data-setting]')) {
+  input.addEventListener('change', () => {
+    accessibilitySettings[input.dataset.setting] = input.checked;
+    saveAccessibilitySettings();
+    applyAccessibilitySettings();
+  });
+}
+applyAccessibilitySettings();
 
 // ----- Customization studio ----------------------------------------------------
 const customScreen = $('custom-screen');
@@ -2041,7 +2334,7 @@ function setPreviewLighting(mode) {
     studioRim.color.setHex(0xa9d8ff);
     studioRim.intensity = 0.48;
     studioPlatform.material.color.setHex(0xe9eef8);
-    bloomPass.strength = 0.55;
+    setBloomStrength(0.55);
   } else {
     studioScene.background = studioBackdrops.studio;
     studioFill.color.setHex(0xe6f0ff);
@@ -2053,7 +2346,7 @@ function setPreviewLighting(mode) {
     studioRim.color.setHex(0x9a8cff);
     studioRim.intensity = neonPreview ? 0.72 : 1.15;
     studioPlatform.material.color.setHex(0xf9fbff);
-    bloomPass.strength = neonPreview ? 0.4 : 0.68;
+    setBloomStrength(neonPreview ? 0.4 : 0.68);
   }
   updatePreviewToolState();
 }
@@ -2591,7 +2884,7 @@ function closeCustomize() {
   studioAura.visible = false;
   renderPass.scene = scene;
   renderPass.camera = camera;
-  bloomPass.strength = 0.55;
+  setBloomStrength(0.55);
   game.state = 'menu';
   player.visible = true;
   blob.visible = true;
@@ -2709,6 +3002,7 @@ function animate() {
   // dt = 0 while paused: keep rendering, freeze all motion and timers
   const rawDt = clock.getDelta();
   const dt = game.paused ? 0 : Math.min(rawDt, 0.05);
+  const motionScale = accessibilitySettings.reducedMotion ? 0.18 : 1;
   elapsed += dt;
 
   // Slow Time power-up: the whole world drops into bullet-time
@@ -2831,16 +3125,16 @@ function animate() {
   if (game.lunge > 0) {
     game.lunge = Math.max(0, game.lunge - dt * 1.4);
     const p = 1 - game.lunge;
-    zOff = -Math.sin(p * Math.PI) * 3.2;      // dive forward through the hole, then settle back
-    ySpin = Math.sin(p * Math.PI) * Math.PI * 2; // victory spin
+    zOff = -Math.sin(p * Math.PI) * 3.2 * motionScale;      // dive forward through the hole, then settle back
+    ySpin = Math.sin(p * Math.PI) * Math.PI * 2 * motionScale; // victory spin
   }
   if (game.knock > 0) {
     game.knock = Math.max(0, game.knock - dt * 1.1);
     const p = 1 - game.knock;
-    zOff = Math.sin(Math.min(p * 1.4, 1) * Math.PI) * 3.4;  // thrown backward, then recover
+    zOff = Math.sin(Math.min(p * 1.4, 1) * Math.PI) * 3.4 * motionScale;  // thrown backward, then recover
     const spinEase = 1 - Math.pow(1 - Math.min(p * 1.15, 1), 3);
-    ySpin = spinEase * Math.PI * 6;                          // three wild spins off the impact
-    xTumble = -Math.sin(p * Math.PI) * 0.5;
+    ySpin = spinEase * Math.PI * 6 * motionScale;                          // three wild spins off the impact
+    xTumble = -Math.sin(p * Math.PI) * 0.5 * motionScale;
   }
   // stunned wobble: drunken sway while little stars circle the head
   let wobbleZ = 0;
@@ -2867,18 +3161,26 @@ function animate() {
   // with the cutout and threads it dead-center
   const settleTarget = wall ? THREE.MathUtils.clamp(((PLAYER_Z - wall.z) - 4) / 10, 0, 1) : 1;
   settle += (settleTarget - settle) * Math.min(dt * 6, 1);
-  player.position.y = PLAYER_Y + Math.sin(elapsed * 2.2) * 0.15 * settle;
+  player.position.y = PLAYER_Y + Math.sin(elapsed * 2.2) * 0.15 * settle * motionScale;
   player.position.z = PLAYER_Z + zOff;
   player.rotation.set(xTumble, ySpin, Math.sin(elapsed * 1.6) * 0.05 * settle + wobbleZ);
   blob.position.set(player.position.x, 0.02, player.position.z);
   blob.scale.setScalar(1 - Math.sin(elapsed * 2.2) * 0.08);
+  let numberScale = 1;
   if (cardPop > 0) {
     cardPop = Math.max(0, cardPop - dt * 4);
-    const s = 1 + Math.sin(cardPop * Math.PI) * 0.35;
-    player.scale.setScalar(s);
-  } else {
-    player.scale.setScalar(1);
+    numberScale += Math.sin(cardPop * Math.PI) * 0.35;
   }
+  let successSquash = 0;
+  if (game.successPulse > 0) {
+    game.successPulse = Math.max(0, game.successPulse - dt * 2.8);
+    successSquash = Math.sin((1 - game.successPulse) * Math.PI) * 0.13 * motionScale;
+  }
+  player.scale.set(
+    numberScale * (1 + successSquash),
+    numberScale * (1 - successSquash * 0.7),
+    numberScale * (1 + successSquash * 0.35)
+  );
 
   // Equipped cosmetic trails stream behind the number during runs.
   if (game.state === 'playing' && numberStyle.trail !== 'none') {
@@ -2894,14 +3196,20 @@ function animate() {
       spawnBurst(
         new THREE.Vector3(player.position.x + (Math.random() - 0.5), player.position.y + (Math.random() - 0.5) * 1.4, player.position.z + 1.3),
         parseInt(trailVisual.color.slice(1), 16),
-        trailVisual.count, trailVisual.speed
+        accessibilitySettings.reducedEffects ? 1 : trailVisual.count, trailVisual.speed
       );
     }
   }
 
   // conveyor: active wall + queue advance together
   if (game.state === 'playing' && wall) {
-    const adv = game.speed * factor * dt;
+    if (game.startGrace > 0) game.startGrace = Math.max(0, game.startGrace - dt);
+    wall.intro = Math.max(0, (wall.intro || 0) - dt * 2.5);
+    const introEase = 1 - Math.pow(wall.intro, 3);
+    wall.obj.group.scale.setScalar(THREE.MathUtils.lerp(1 - 0.06 * motionScale, 1, introEase));
+    wall.obj.group.rotation.z = wall.boss ? Math.sin(wall.intro * Math.PI * 2) * wall.intro * 0.035 * motionScale : 0;
+    const canAdvance = game.startGrace <= 0 && !game.tutorialHold;
+    const adv = canAdvance ? game.speed * factor * dt : 0;
     wall.z += adv;
     wall.obj.group.position.z = wall.z;
     for (const q of queue) {
@@ -2928,17 +3236,22 @@ function animate() {
     }
   }
 
+  // A restrained success lift adds impact without interrupting targeting.
+  if (game.cameraKick > 0) game.cameraKick = Math.max(0, game.cameraKick - dt * 3.1);
+  const successLift = Math.sin((1 - game.cameraKick) * Math.PI) * game.cameraKick * 0.2 * motionScale;
+
   // camera shake decay
-  if (game.shake > 0) {
+  if (game.shake > 0 && !accessibilitySettings.disableShake && !accessibilitySettings.reducedMotion) {
     game.shake = Math.max(0, game.shake - dt * 2.2);
     const a = game.shake * game.shake * 0.6;
     camera.position.set(
       camBase.x + (Math.random() - 0.5) * a,
-      camBase.y + (Math.random() - 0.5) * a,
-      camBase.z + (Math.random() - 0.5) * a
+      camBase.y + successLift + (Math.random() - 0.5) * a,
+      camBase.z - successLift * 0.6 + (Math.random() - 0.5) * a
     );
   } else {
-    camera.position.copy(camBase);
+    game.shake = Math.max(0, game.shake - dt * 2.2);
+    camera.position.set(camBase.x, camBase.y + successLift, camBase.z - successLift * 0.6);
   }
 
   // equation chip rides above the number's head like a speech bubble,

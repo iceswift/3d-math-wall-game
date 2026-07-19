@@ -86,6 +86,14 @@
     padding: 8px 14px;
     color: #8b7cf8;
   }
+  #combo-chip {
+    top: 94px; left: 18px;
+    padding: 7px 12px;
+    font-size: 11px; letter-spacing: 1px;
+    opacity: 0; transform: translateY(-5px);
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+  #combo-chip.visible { opacity: 1; transform: translateY(0); }
   #combo-pop {
     position: absolute; top: 16%; left: 50%;
     transform: translateX(-50%) scale(0);
@@ -105,13 +113,20 @@
   }
   #perfect-pop.show { transform: translateX(-50%) scale(1); }
   #wave-banner {
-    position: absolute; top: 38%; left: 50%;
-    transform: translate(-50%, -50%) scale(0);
-    font-size: clamp(40px, 9vw, 72px); font-weight: 900;
-    color: var(--ink);
-    text-shadow: 0 4px 0 rgba(255,255,255,0.85);
-    letter-spacing: 4px;
-    transition: transform 0.22s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
+    position: absolute; top: 18%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.82);
+    padding: 7px 15px;
+    border: 1px solid rgba(255,255,255,0.72);
+    border-radius: 15px;
+    background: rgba(43,58,85,0.76);
+    backdrop-filter: blur(7px);
+    box-shadow: 0 8px 24px rgba(43,58,85,0.2);
+    font-size: clamp(18px, 3vw, 28px); font-weight: 900;
+    color: #fff;
+    text-shadow: 0 2px 5px rgba(20,28,48,0.28);
+    letter-spacing: 3px;
+    white-space: nowrap;
+    transition: transform 0.2s cubic-bezier(0.34,1.36,0.64,1), opacity 0.22s;
     opacity: 0;
   }
   #wave-banner.show { transform: translate(-50%, -50%) scale(1); opacity: 1; }
@@ -169,6 +184,11 @@
     box-shadow: 0 2px 0 rgba(43,58,85,0.18), 0 4px 10px rgba(43,58,85,0.12);
   }
   .op-btn:disabled { opacity: 0.35; cursor: default; }
+  .op-btn.hint {
+    outline: 4px solid #ffd166;
+    animation: hintPulse 900ms ease-in-out infinite alternate;
+  }
+  @keyframes hintPulse { to { transform: translateY(-3px); box-shadow: 0 8px 0 rgba(43,58,85,0.16), 0 0 22px rgba(255,209,102,0.65); } }
   .op-btn small {
     display: inline-block;
     font-size: 11px;
@@ -309,6 +329,74 @@
   }
   .big-btn.ghost:active { box-shadow: 0 2px 0 rgba(43,58,85,0.2), 0 5px 10px rgba(43,58,85,0.12); }
   #final-score { font-size: 30px; font-weight: 900; color: var(--accent); }
+  .menu-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; max-width: 520px; }
+  .menu-tools .big-btn.ghost { width: auto; min-width: 145px; font-size: 14px; padding: 10px 15px; }
+  .panel-screen { box-sizing: border-box; overflow-x: hidden; overflow-y: auto; justify-content: flex-start; padding: 38px 18px; }
+  .info-panel {
+    box-sizing: border-box;
+    flex: none;
+    width: min(720px, 94vw);
+    padding: 22px;
+    border-radius: 24px;
+    background: rgba(255,255,255,0.94);
+    box-shadow: 0 18px 48px rgba(43,58,85,0.2);
+    color: var(--ink);
+  }
+  .info-panel h1 { font-size: clamp(30px, 6vw, 48px); text-align: center; }
+  .info-panel > p { margin: 8px auto 18px; }
+  .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+  .help-card { padding: 14px; border-radius: 16px; background: #eef1f8; }
+  .help-card b { display: block; color: #7568cf; font-size: 11px; letter-spacing: 1.1px; }
+  .help-card p { margin-top: 5px; text-align: left; font-size: 12px; line-height: 1.4; opacity: 0.7; }
+  .panel-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+  .panel-actions .big-btn { width: min(240px, 70vw); font-size: 17px; padding: 12px 16px; }
+  .option-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 9px; }
+  .option-btn {
+    min-height: 72px; padding: 10px;
+    border: 2px solid transparent; border-radius: 16px;
+    background: #eef1f8; color: var(--ink);
+    font-family: inherit; font-weight: 850; cursor: pointer;
+  }
+  .option-btn small { display: block; margin-top: 3px; font-size: 9px; opacity: 0.58; }
+  .option-btn.sel { border-color: #7568cf; background: #e8e2ff; color: #5546b7; }
+  .settings-list { display: grid; gap: 8px; }
+  .setting-row {
+    min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 10px 13px; border-radius: 15px; background: #eef1f8;
+  }
+  .setting-row strong { display: block; font-size: 12px; }
+  .setting-row small { display: block; margin-top: 2px; font-size: 9px; opacity: 0.58; }
+  .setting-row input { width: 24px; height: 24px; accent-color: #7568cf; }
+  #tutorial-coach {
+    position: fixed; z-index: 7; top: 118px; left: 18px;
+    width: 270px; padding: 15px;
+    border-radius: 18px;
+    background: rgba(35,47,76,0.94); color: #fff;
+    box-shadow: 0 14px 34px rgba(20,28,50,0.3);
+    pointer-events: none;
+  }
+  #tutorial-coach.hidden { display: none; }
+  #tutorial-coach small { color: #ffd166; font-size: 9px; font-weight: 900; letter-spacing: 1.5px; }
+  #tutorial-coach strong { display: block; margin: 4px 0; font-size: 16px; }
+  #tutorial-coach p { font-size: 11px; line-height: 1.42; opacity: 0.8; }
+  #tutorial-coach.wrong { animation: coachWrong 260ms ease; }
+  @keyframes coachWrong { 35% { transform: translateX(-8px); } 70% { transform: translateX(7px); } }
+  #run-summary {
+    width: min(560px, 92vw);
+    display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px;
+  }
+  .run-stat { padding: 10px; border-radius: 14px; background: rgba(255,255,255,0.82); color: var(--ink); text-align: center; }
+  .run-stat small { display: block; font-size: 8px; font-weight: 900; letter-spacing: 1px; opacity: 0.56; }
+  .run-stat strong { display: block; margin-top: 3px; font-size: 16px; }
+  #run-insight { max-width: 560px; font-size: 12px; }
+  body.a11y-high-contrast .hud-chip,
+  body.a11y-high-contrast #equation,
+  body.a11y-high-contrast .op-btn,
+  body.a11y-high-contrast .pw-btn { background: #fff; border: 2px solid #24314f; backdrop-filter: none; }
+  body.a11y-large-text #equation { font-size: 29px; }
+  body.a11y-large-text .op-btn { font-size: 32px; min-width: 94px; }
+  body.a11y-large-text .hud-chip { font-size: 120%; }
+  body.a11y-reduced-motion *, body.a11y-reduced-motion *::before, body.a11y-reduced-motion *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 
   #flash {
     position: fixed; inset: 0;
@@ -736,6 +824,12 @@
   }
 
   @media (max-width: 700px) and (orientation: portrait) {
+    #tutorial-coach { top: 116px; left: 10px; right: 10px; width: auto; padding: 11px 13px; }
+    #tutorial-coach strong { font-size: 13px; }
+    #tutorial-coach p { font-size: 10px; }
+    .help-grid { grid-template-columns: 1fr; }
+    .option-grid { grid-template-columns: 1fr; }
+    #run-summary { grid-template-columns: repeat(2, minmax(0,1fr)); }
     #custom-header { top: 12px; left: 8px; width: calc(100% - 16px); }
     #custom-title { font-size: 21px; letter-spacing: 3px; }
     #custom-panel {
@@ -815,6 +909,7 @@
     .op-btn { min-width: 72px; font-size: 24px; padding: 12px 6px 10px; border-radius: 16px; }
     #equation { font-size: 19px; padding: 6px 16px; }
     #score-chip { font-size: 18px; padding: 8px 14px; }
+    #combo-chip { top: 82px; left: 10px; font-size: 9px; }
     #wave-chip { font-size: 11px; padding: 10px 12px; letter-spacing: 1px; }
     #wave-progress { width: 110px; top: 58px; }
     #lives-chip { font-size: 16px; padding: 8px 12px; }
@@ -833,6 +928,7 @@
 
   <div id="hud">
     <div class="hud-chip" id="score-chip"><small>SCORE</small><span id="score-val">0</span></div>
+    <div class="hud-chip" id="combo-chip">COMBO ×1</div>
     <div class="hud-chip" id="wave-chip">WAVE 1</div>
     <div id="wave-progress"><div id="wave-fill"></div></div>
     <div class="hud-chip" id="lives-chip">❤❤❤</div>
@@ -860,7 +956,81 @@
     <button class="big-btn" id="play-classic">CLASSIC<small id="best-classic">best 0</small></button>
     <button class="big-btn alt" id="play-time">TIME ATTACK<small id="best-time">best 0</small></button>
     <button class="big-btn alt2" id="play-daily">DAILY CHALLENGE<small id="best-daily">today's best 0</small></button>
-    <button class="big-btn ghost" id="customize-btn">🎨 CUSTOMIZE</button>
+    <div class="menu-tools">
+      <button class="big-btn ghost" id="play-practice">◉ PRACTICE</button>
+      <button class="big-btn ghost" id="customize-btn">🎨 CUSTOMIZE</button>
+      <button class="big-btn ghost" id="help-btn">? HOW TO PLAY</button>
+      <button class="big-btn ghost" id="settings-btn">⚙ ACCESSIBILITY</button>
+    </div>
+  </div>
+
+  <div id="tutorial-coach" class="hidden" role="status" aria-live="polite">
+    <small id="tutorial-step">LESSON 1 / 4</small>
+    <strong id="tutorial-title">Match the target</strong>
+    <p id="tutorial-copy"></p>
+  </div>
+
+  <div class="screen panel-screen hidden" id="welcome-screen">
+    <div class="info-panel">
+      <h1>WELCOME!</h1>
+      <p>Learn the core rules in four quick, interactive walls.</p>
+      <div class="panel-actions">
+        <button class="big-btn" id="tutorial-start" disabled>START TUTORIAL</button>
+        <button class="big-btn ghost" id="tutorial-skip">SKIP FOR NOW</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen panel-screen hidden" id="help-screen">
+    <div class="info-panel">
+      <h1>HOW TO PLAY</h1>
+      <p>Transform your number into the wall's target before it reaches you.</p>
+      <div class="help-grid">
+        <div class="help-card"><b>1 · READ</b><p>Your number is in the center. The target appears in the equation and on the incoming wall.</p></div>
+        <div class="help-card"><b>2 · TRANSFORM</b><p>Press 1–4 or tap an operation. Some puzzles require more than one operation.</p></div>
+        <div class="help-card"><b>3 · TIME IT</b><p>Match before impact. Solving in the final highlighted section earns +15 Perfect points.</p></div>
+        <div class="help-card"><b>4 · BUILD COMBOS</b><p>Each consecutive clear adds 50% of the wall's base score. A crash resets the combo.</p></div>
+        <div class="help-card"><b>POWER-UPS</b><p>Slow creates thinking time, Undo reverses your last operation, and Skip removes one wall.</p></div>
+        <div class="help-card"><b>BOSS WALLS</b><p>Every fifth wall is tougher, worth more points, and restocks one use of each power-up.</p></div>
+      </div>
+      <div class="panel-actions">
+        <button class="big-btn" id="help-tutorial">PLAY TUTORIAL</button>
+        <button class="big-btn ghost" id="help-close">BACK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen panel-screen hidden" id="practice-screen">
+    <div class="info-panel">
+      <h1>PRACTICE</h1>
+      <p>No lives, no pressure, and no score records. Choose your learning level.</p>
+      <div class="option-grid" id="practice-levels">
+        <button class="option-btn sel" data-practice-level="1">BASICS<small>+ and − · relaxed walls</small></button>
+        <button class="option-btn" data-practice-level="3">MIXED<small>adds × and ÷</small></button>
+        <button class="option-btn" data-practice-level="6">ADVANCED<small>multi-step and exotic ops</small></button>
+      </div>
+      <label class="setting-row" style="margin-top:10px"><span><strong>Show solution hints</strong><small>Highlights the next operation in the generated solution.</small></span><input type="checkbox" id="practice-hints" checked></label>
+      <div class="panel-actions">
+        <button class="big-btn" id="practice-start">START PRACTICE</button>
+        <button class="big-btn ghost" id="practice-close">BACK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen panel-screen hidden" id="settings-screen">
+    <div class="info-panel">
+      <h1>ACCESSIBILITY</h1>
+      <p>These preferences are saved automatically.</p>
+      <div class="settings-list">
+        <label class="setting-row"><span><strong>Reduced motion</strong><small>Reduces spins, squash, and animated transitions.</small></span><input type="checkbox" data-setting="reducedMotion"></label>
+        <label class="setting-row"><span><strong>Disable camera shake</strong><small>Keeps the gameplay camera stable after impacts.</small></span><input type="checkbox" data-setting="disableShake"></label>
+        <label class="setting-row"><span><strong>Reduced flashes and bloom</strong><small>Softens screen flashes, particles, and bright glow.</small></span><input type="checkbox" data-setting="reducedEffects"></label>
+        <label class="setting-row"><span><strong>High-contrast UI</strong><small>Adds stronger borders and solid control backgrounds.</small></span><input type="checkbox" data-setting="highContrast"></label>
+        <label class="setting-row"><span><strong>Larger gameplay text</strong><small>Enlarges equations, controls, and HUD information.</small></span><input type="checkbox" data-setting="largeText"></label>
+        <label class="setting-row"><span><strong>Haptic feedback</strong><small>Uses short vibrations on supported mobile devices.</small></span><input type="checkbox" data-setting="haptics"></label>
+      </div>
+      <div class="panel-actions"><button class="big-btn ghost" id="settings-close">DONE</button></div>
+    </div>
   </div>
 
   <div id="custom-screen">
@@ -983,6 +1153,8 @@
     <h1 id="gameover-title">CRASHED!</h1>
     <div id="final-score">Score: 0</div>
     <p id="best-score"></p>
+    <div id="run-summary"></div>
+    <p id="run-insight"></p>
     <button class="big-btn" id="retry-btn">RETRY</button>
     <button class="big-btn ghost" id="menu-btn">MENU</button>
   </div>

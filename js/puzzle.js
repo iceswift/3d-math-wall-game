@@ -134,7 +134,7 @@ export function makePuzzle(current, { wave = 1, boss = false, rng = Math.random 
     const j = Math.floor(rng() * (i + 1));
     [buttons[i], buttons[j]] = [buttons[j], buttons[i]];
   }
-  return { target, buttons, steps };
+  return { target, buttons, steps, solution: chain.map(op => ({ ...op })) };
 }
 
 export function randStart(rng) { return randInt(rng, 2, 12); }
