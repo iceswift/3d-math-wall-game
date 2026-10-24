@@ -26,7 +26,23 @@ This portfolio project combines procedural 3D geometry, a real-time game loop, d
 - **Accessibility options:** reduced motion, reduced effects, high contrast and camera-shake controls.
 - **Local saves:** best scores, customization and progression use localStorage.
 
-![Gameplay with approaching number walls](docs/images/gameplay.png)
+## A world that changes with time
+
+The environment cycles through **Morning → Day → Sunset → Twilight → Night** during play. Lighting, sky colors, fog and wildlife change with it. At night, glowing crystals, fireflies and aurora ribbons bring the landscape to life.
+
+### Night — aurora and glowing wildlife
+
+![Night gameplay with aurora ribbons, luminous crystals and a glowing deer](docs/images/scene-night.png)
+
+| Morning — warm light and meadow wildlife | Day — bright skies and green hills |
+| --- | --- |
+| ![Morning gameplay](docs/images/scene-morning.png) | ![Day gameplay](docs/images/scene-day.png) |
+
+| Sunset — pink skies and warm fog | Twilight — violet hills and emerging stars |
+| --- | --- |
+| ![Sunset gameplay](docs/images/scene-sunset.png) | ![Twilight gameplay](docs/images/scene-twilight.png) |
+
+Screenshots captured from the running game. Open an image to view it at full resolution.
 
 ## Controls
 

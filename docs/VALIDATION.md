@@ -10,3 +10,7 @@ Validated on 2026-10-24 for the portfolio release.
 - Original development history is retained. The previous remote is retained locally as `previous-origin`.
 
 Not yet covered: physical mobile devices, broad browser compatibility, accessibility conformance and performance benchmarks. These are roadmap items, not release guarantees.
+
+## Environment gallery
+
+On 2026-10-24, five 1440×900 screenshots were captured from the published game in Chromium: Morning, Day, Sunset, Twilight and Night. The existing `__setPhase` debug control selected each time period while gameplay was frozen at the same moment, making lighting and scenery comparable. The screenshots are unretouched renders; the game source was not changed for the capture. Each screenshot was visually checked before publication in the README.
