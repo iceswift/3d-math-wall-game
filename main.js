@@ -1945,6 +1945,57 @@ function startGame(mode) {
 }
 window.__start = startGame; // debug handle
 
+// ----- Results screen: rank grade, count-up numbers, New Best celebration ------
+// Rank is a 0-100 index from stats already tracked in game.run — no new
+// persisted state needed. Thresholds tuned so a clean short run lands B/A,
+// and only a near-flawless run reaches S/S+.
+const RANKS = [
+  { min: 0,  id: 'D',  verdict: 'Keep practicing!',  cls: '' },
+  { min: 20, id: 'C',  verdict: 'Nice attempt!',     cls: 'rank-c' },
+  { min: 40, id: 'B',  verdict: 'Solid run!',        cls: 'rank-b' },
+  { min: 60, id: 'A',  verdict: 'Great job!',        cls: 'rank-a' },
+  { min: 80, id: 'S',  verdict: 'Outstanding!',      cls: 'rank-s' },
+  { min: 95, id: 'S+', verdict: 'Flawless mastery!', cls: 'rank-splus' },
+];
+
+function computeRank() {
+  if (game.solved <= 0) return RANKS[0];
+  const perfectRatio = game.run.perfects / game.solved;
+  const idx = THREE.MathUtils.clamp(
+    10 + Math.min(game.solved, 20) * 2 + perfectRatio * 30 + Math.min(game.run.maxCombo, 10) * 2 - game.run.misses * 6,
+    0, 100
+  );
+  let rank = RANKS[0];
+  for (const r of RANKS) if (idx >= r.min) rank = r;
+  return rank;
+}
+
+// ease-out count-up used for the score and can be reused for any stat number
+function animateCount(el, to, { duration = 650 } = {}) {
+  const t0 = performance.now();
+  const step = now => {
+    const p = Math.min(1, (now - t0) / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(to * eased);
+    if (p < 1) requestAnimationFrame(step);
+    else el.textContent = to;
+  };
+  requestAnimationFrame(step);
+}
+
+function spawnConfetti(container) {
+  const colors = ['#ff7a59', '#3ecf8e', '#f5a623', '#5b8def', '#9a6ff2', '#ff5f8f'];
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement('span');
+    s.style.left = `${Math.random() * 100}%`;
+    s.style.background = colors[i % colors.length];
+    s.style.animationDuration = `${1.6 + Math.random() * 1.2}s`;
+    s.style.animationDelay = `${Math.random() * 0.5}s`;
+    container.appendChild(s);
+  }
+}
+
+window.__endGame = reason => endGame(reason); // temporary verification hook
 function endGame(reason) {
   game.state = 'gameover';
   clearAllWalls();
@@ -1955,24 +2006,43 @@ function endGame(reason) {
   const runSummary = $('run-summary');
   const runInsight = $('run-insight');
   const retryBtn = $('retry-btn');
+  const rankWrap = $('go-rank-wrap');
+  const scoreEl = $('final-score');
+  const newBestEl = $('go-newbest');
+  const confettiEl = $('go-confetti');
+  // reset celebration state every time — this screen is reused run after run
+  rankWrap.classList.add('hidden');
+  newBestEl.classList.add('hidden');
+  scoreEl.classList.remove('go-text');
+  $('go-score-label').style.display = '';
+  confettiEl.innerHTML = '';
+
   const averageSolve = game.solved ? game.run.solveTime / game.solved : 0;
+  const flawless = game.solved > 0 && game.run.misses === 0;
+  const bigCombo = game.run.maxCombo >= 5;
   runSummary.innerHTML = [
-    ['Walls', game.solved],
-    ['Perfects', game.run.perfects],
-    ['Max combo', `×${game.run.maxCombo}`],
-    ['Avg. solve', game.solved ? `${averageSolve.toFixed(1)}s` : '—'],
-    ['Operations', game.run.operations],
-    ['Power-ups', game.run.powers],
-  ].map(([label, value]) => `<div class="run-stat"><small>${label}</small><strong>${value}</strong></div>`).join('');
+    ['🧱', 'Walls', game.solved, false],
+    ['✨', 'Perfects', game.run.perfects, flawless],
+    ['🔥', 'Max combo', `×${game.run.maxCombo}`, bigCombo],
+    ['⏱', 'Avg. solve', game.solved ? `${averageSolve.toFixed(1)}s` : '—', false],
+    ['🧮', 'Operations', game.run.operations, false],
+    ['⚡', 'Power-ups', game.run.powers, false],
+  ].map(([icon, label, value, hi], i) =>
+    `<div class="run-stat${hi ? ' highlight' : ''}" style="--i:${i}"><span class="run-stat-icon">${icon}</span><small>${label}</small><strong>${value}</strong></div>`
+  ).join('');
+
   if (reason === 'tutorial') {
     $('gameover-title').textContent = 'TUTORIAL COMPLETE!';
-    $('final-score').textContent = "You're ready to play.";
+    $('go-score-label').style.display = 'none';
+    scoreEl.classList.add('go-text');
+    scoreEl.textContent = "You're ready to play.";
     $('best-score').textContent = 'Replay this lesson any time from How to Play.';
     runInsight.textContent = 'Next: try Practice with hints, or begin a Classic run.';
     retryBtn.textContent = 'REPLAY TUTORIAL';
     gameoverScreen.classList.remove('hidden');
     return;
   }
+
   const previousBest = Number(localStorage.getItem(bestKey()) || 0);
   const best = Math.max(game.score, previousBest);
   localStorage.setItem(bestKey(), String(best));
@@ -1985,12 +2055,29 @@ function endGame(reason) {
   const endGameUnlocks = syncProgressionUnlocks();
   $('gameover-title').textContent =
     reason === 'complete' ? 'DAILY COMPLETE!' : reason === 'time' ? "TIME'S UP!" : 'CRASHED!';
-  $('final-score').textContent = `Score: ${game.score}`;
+
+  const rank = computeRank();
+  rankWrap.classList.remove('hidden');
+  $('go-rank').textContent = rank.id;
+  $('go-rank').className = 'go-rank' + (rank.cls ? ' ' + rank.cls : '');
+  $('go-rank-sub').textContent = rank.verdict;
+
+  animateCount(scoreEl, game.score);
+
+  const isNewBest = game.score > previousBest;
+  newBestEl.classList.toggle('hidden', !isNewBest);
   $('best-score').textContent = endGameUnlocks.length
     ? `Best: ${best} · ${endGameUnlocks.length} cosmetic reward${endGameUnlocks.length === 1 ? '' : 's'} unlocked!`
     : `Best: ${best}`;
+
+  if (isNewBest) {
+    sfx.fanfare();
+    spawnBurst(new THREE.Vector3(player.position.x, player.position.y + 1.2, player.position.z), 0xffd166, 80, 10);
+  }
+  if (isNewBest || rank.id === 'S' || rank.id === 'S+') spawnConfetti(confettiEl);
+
   const breakdown = `Base ${game.run.baseScore} · Combo +${game.run.comboBonus} · Perfect +${game.run.perfectBonus}`;
-  runInsight.textContent = game.score > previousBest
+  runInsight.textContent = isNewBest
     ? `NEW PERSONAL BEST · +${game.score - previousBest} · ${breakdown}`
     : game.run.misses >= 2
       ? `${breakdown} · Practice mode can help with the difficult operations.`
