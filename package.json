@@ -1,0 +1,11 @@
+{
+  "name": "3d-math-wall-game",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser-based 3D arithmetic action puzzle built with Three.js.",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check main.js && node --check js/puzzle.js && node --check js/wall.js && node --check js/text3d.js && node --check js/fx.js && node --check js/audio.js"
+  }
+}

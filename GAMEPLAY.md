@@ -46,7 +46,7 @@ Operators unlock by wave, so the math vocabulary grows during a run:
 - **Exotic operators (x², √, mod) are single-use per wall** — they glow gold
   and grey out after one press. They act as powerful limited-use shortcuts.
 - Two-step (non-boss) puzzles start appearing at wave 4 (~25% chance).
-- All puzzles remain integer-only and within 0–9999; division buttons disable
+- Final targets stay within 1–999; intermediate values remain integer-only within 0–9999. Division buttons disable
   when the value isn't divisible.
 
 ## Wall queue
@@ -72,11 +72,15 @@ Runs start with 2 / 2 / 1 charges; clearing a boss restocks each by +1 (cap 3).
 - **Classic** — 3 hearts, endless waves, difficulty ramps forever. The default.
 - **Time Attack** — 60 seconds, no hearts. A crash costs 6 seconds instead.
   Highest score when the clock hits zero wins.
-- **Daily Challenge** — a 15-wall gauntlet seeded from today's date: everyone
-  gets the same starting number and puzzle sequence. 3 hearts. Best score per
+- **Daily Challenge** — a 15-wall gauntlet seeded from the local calendar date.
+  Equal seeds and gameplay paths produce the same sequence. 3 hearts. Best score per
   day is stored locally (leaderboards later).
 
-Best scores per mode persist in localStorage.
+Additional modes: an interactive tutorial teaches the core rules, and Practice offers configurable levels and hints. Achievements unlock cosmetic options in the customization studio. Accessibility settings include reduced motion, reduced effects, high contrast and camera-shake controls.
+
+Best scores, progression and customization persist in localStorage.
+
+See [architecture](docs/ARCHITECTURE.md) for implementation tradeoffs and [README](README.md) for the live demo.
 
 ## Code layout
 
